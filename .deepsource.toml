@@ -1,0 +1,86 @@
+# DeepSource configuration for Nexus-HEMS-Dash
+#
+# Purpose:
+#   Deterministic static analysis, secrets detection, Docker analysis, and
+#   coverage diffing for the pnpm + Turborepo monorepo.
+#
+# Rollout mode:
+#   Advisory-first. DeepSource posts inline PR comments and a report card but
+#   is NOT a required merge gate until the initial tuning period (2–4 weeks)
+#   and the existing HIGH-severity dependency advisories are remediated.
+#
+# Safety guardrails:
+#   - Autofix is NOT enabled in this file; it must be configured from the
+#     DeepSource dashboard and restricted to style/unused-import categories.
+#   - Control-logic paths (adapters, auth, security middleware, command safety,
+#     energy controllers) must never receive auto-committed fixes.
+#
+# Docs:
+#   - docs/runbooks/deepsource-integration.md
+#   - docs/PR-FEEDBACK-PLAYBOOK.md
+
+version = 1
+
+exclude_patterns = [
+  "node_modules/**",
+  "dist/**",
+  "build/**",
+  ".turbo/**",
+  "**/*.d.ts",
+  "**/coverage/**",
+  "docs/**",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.spec.ts",
+  "**/*.spec.tsx",
+  "apps/web/src-tauri/**",
+  "apps/web/storybook-static/**",
+  "apps/web/playwright-report/**",
+  "apps/web/test-results/**",
+  "apps/web/public/**",
+  "scripts/**",
+  ".github/**",
+]
+
+test_patterns = [
+  "apps/api/src/tests/**",
+  "apps/web/src/tests/**",
+  "apps/web/tests/e2e/**",
+]
+
+# JavaScript analyzer — REMOVED (2026-07-07).
+#
+# The "DeepSource: JavaScript" default-branch check stayed permanently red from
+# rule-fit false positives that cannot be muted from repo files — dominated by
+# JS-0067 ("no global scope", ~213×), which flags top-level statements in every
+# ESM file by design (not a defect). These are NOT real errors to fix.
+#
+# Setting `enabled = false` here did NOT stop it: DeepSource re-analyzed the
+# merge commit and re-posted the failing status, because analyzer *activation*
+# is controlled from the DeepSource dashboard, not this file. The block is now
+# removed entirely. If the status still appears, the definitive off switch is to
+# deactivate the JavaScript analyzer (repo owner only) at
+# https://deepsource.io/gh/qnbs/Nexus-HEMS-Dash → Settings → Analyzers.
+#
+# The check is NOT a required merge gate. Lint/style/hygiene stay covered by
+# Biome + ESLint (zero-warning gate in ci.yml); PR review by CodeRabbit + CodeAnt.
+# See docs/runbooks/deepsource-integration.md.
+
+[[analyzers]]
+name = "secrets"
+enabled = true
+
+[[analyzers]]
+name = "docker"
+enabled = true
+
+[[analyzers]]
+name = "test-coverage"
+enabled = true
+
+# No [[transformers]] block by design.
+#   Formatting is owned exclusively by Biome (ADR-001, Biome-first toolchain).
+#   DeepSource ships no `biome` transformer, and its JS transformers (`prettier`,
+#   `standardjs`) are explicitly banned by this repo — registering one would fight
+#   Biome and thrash `git blame`. DeepSource Autofix (dashboard-only, style/unused
+#   categories) is the intended remediation path; see docs/runbooks/deepsource-integration.md.

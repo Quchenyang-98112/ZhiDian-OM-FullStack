@@ -1,0 +1,81 @@
+# ── Nexus HEMS Server — Node.js backend ─────────────────────────
+# Monorepo-correct server image.
+#
+# packages/shared-types uses noEmit:true and exports only TypeScript
+# source. A compiled node dist/index.js approach fails at runtime when
+# Node.js resolves @nexus-hems/shared-types to a .ts extension file.
+# Fix: tsx production runtime — handles TypeScript natively, including
+# workspace packages that export TS source.
+#
+# Build strategy: pnpm deploy --filter @nexus-hems/api --prod creates a
+# self-contained bundle with only production deps and resolved workspace
+# packages. tsx is in dependencies (not devDependencies) so it is
+# included in the production deployment.
+# ─────────────────────────────────────────────────────────────────
+
+FROM node:24.15.0-alpine3.22@sha256:b689d4005875ae167178471a7a622ec2909459a3bbb32277260be1971af7a99f AS build
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared-types/package.json ./packages/shared-types/
+RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts
+
+# Copy source (only packages needed for the API)
+COPY apps/api/ ./apps/api/
+COPY packages/shared-types/ ./packages/shared-types/
+
+# Create a production-only deployment bundle.
+# pnpm deploy: installs prod deps only, resolves workspace:* by copying
+# packages/shared-types into node_modules/@nexus-hems/shared-types.
+RUN pnpm deploy --legacy --filter @nexus-hems/api --prod /tmp/api-deploy
+
+# ── Production stage (distroless) ────────────────────────────
+# gcr.io/distroless/nodejs24-debian13:nonroot — no shell, no package manager,
+# no OS utilities. Runs as nonroot user (uid 65532) by default.
+# Attack surface is minimal: only the Node.js runtime and the app.
+# NOTE: nodejs24-debian12 was removed upstream (2026-02); debian13 is current.
+# NOTE: Pin to an immutable SHA256 digest in production via build-arg or
+# image policy (e.g. Kyverno imagePolicyWebhook).
+# Immutable tag + digest satisfies OpenSSF Scorecard Pinned-Dependencies
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:23a384b4596ec311f78ac9c46af2b8cc0ed403d1f9c3c249111266d7f56319db AS production
+
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+ARG VERSION=dev
+
+LABEL org.opencontainers.image.title="Nexus-HEMS Dashboard Server" \
+  org.opencontainers.image.description="Production backend image for Nexus-HEMS-Dash" \
+  org.opencontainers.image.source="https://github.com/qnbs/Nexus-HEMS-Dash" \
+  org.opencontainers.image.revision="$VCS_REF" \
+  org.opencontainers.image.created="$BUILD_DATE" \
+  org.opencontainers.image.version="$VERSION"
+
+# Security: upgrade all OS packages to fix CVEs
+# NOTE: distroless has no apk — OS-level patching is handled by base image updates.
+# Rebuild images regularly to pick up new distroless releases with patched packages.
+
+WORKDIR /app
+
+# Copy the production deployment bundle (source + resolved node_modules).
+# pnpm deploy has already resolved workspace:* packages (shared-types included).
+# Use uid 65532 (distroless nonroot uid).
+COPY --chown=65532:65532 --from=build /tmp/api-deploy ./
+
+ENV NODE_ENV=production
+ENV ADAPTER_MODE=mock
+
+# Security: distroless:nonroot already runs as uid 65532 (nonroot) — no USER command needed.
+
+# HEALTHCHECK is omitted in distroless: there is no wget or curl.
+# Use Kubernetes liveness/readiness probes (configured in helm/nexus-hems/) or
+# Docker Compose healthcheck with a sidecar probe container.
+
+EXPOSE 3000
+
+# tsx handles TypeScript source natively at runtime via Node.js --import flag.
+# node_modules/.bin/tsx is a shell shebang script — NOT usable in distroless (no shell).
+# Use `node --import tsx` instead: tsx is loaded as a Node.js loader from node_modules.
+# Distroless nodejs images set ENTRYPOINT to `node` — pass only Node args here.
+CMD ["--import", "tsx", "index.ts"]

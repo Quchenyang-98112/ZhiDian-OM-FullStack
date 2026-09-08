@@ -1,0 +1,27 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "nexus-hems.fullname" . }}-frontend
+  labels:
+    {{- include "nexus-hems.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "nexus-hems.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: frontend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "nexus-hems.fullname" . }}-server
+  labels:
+    {{- include "nexus-hems.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "nexus-hems.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+{{- end }}

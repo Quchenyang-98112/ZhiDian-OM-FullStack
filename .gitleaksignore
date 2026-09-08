@@ -1,0 +1,11 @@
+# Gitleaks known false positives
+# These are placeholder PEM strings in form input fields
+# File: src/components/AdapterConfigPanel.tsx (EEBUS config form)
+2ed45d939b4f1683cba16115df27ebb48fa6def0:src/components/AdapterConfigPanel.tsx:eebus-certificate-key:899
+2ed45d939b4f1683cba16115df27ebb48fa6def0:src/components/AdapterConfigPanel.tsx:eebus-certificate-key:963
+src/components/AdapterConfigPanel.tsx:eebus-certificate-key:899
+src/components/AdapterConfigPanel.tsx:eebus-certificate-key:963
+
+# HA integration guide — documented MQTT placeholder (not a real credential)
+792c0828f5948b7d8df840c2cb078edbaff53bf3:docs/Home-Assistant-Integration-Guide.md:mqtt-credentials:197
+docs/Home-Assistant-Integration-Guide.md:mqtt-credentials:197

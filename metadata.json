@@ -1,0 +1,5 @@
+{
+  "name": "Nexus-HEMS Dash",
+  "description": "A strategic Home Energy Management System dashboard integrating Victron, KNX, and dynamic tariffs.",
+  "requestFramePermissions": []
+}

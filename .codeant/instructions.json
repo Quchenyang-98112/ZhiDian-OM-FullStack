@@ -1,0 +1,46 @@
+{
+  "$comment": "CodeAnt AI review instructions for Nexus-HEMS-Dash. Docs: https://docs.codeant.ai/pull_request/customize/global_repo_config . These shape review comments; they do NOT auto-apply changes. Advisory posture — see docs/runbooks/codeant-ai-integration.md.",
+  "instructions": [
+    {
+      "id": "react19-compiler",
+      "description": "React 19 with the React Compiler is enabled. Do NOT recommend adding manual useMemo/useCallback/memo unless the compiler provably cannot handle the case. Never propose Redux, MobX, or other state libraries; the app uses Zustand. Never propose Tailwind v3 syntax (use Tailwind v4 @theme / @import 'tailwindcss').",
+      "files": ["apps/web/src/**/*.{ts,tsx}", "!**/*.test.*"],
+      "scope": ["ide", "pr"]
+    },
+    {
+      "id": "i18n-dual-locale",
+      "description": "Every user-visible string must use t(). Any new key must be added to BOTH apps/web/src/locales/en.ts and apps/web/src/locales/de.ts (German is the fallback). Flag missing translations.",
+      "files": ["apps/web/src/**/*.{ts,tsx}", "!**/*.test.*"],
+      "scope": ["ide", "pr"]
+    },
+    {
+      "id": "a11y-wcag",
+      "description": "WCAG 2.2 AA is mandatory. Require type=\"button\" on all non-submit buttons and aria-hidden on decorative icons. Prefer the branded UI primitives (ChoiceCardGroup, SelectField, Disclosure, SgReadyModeSelector) over raw native controls.",
+      "files": ["apps/web/src/**/*.tsx", "!**/*.test.*"],
+      "scope": ["ide", "pr"]
+    },
+    {
+      "id": "safety-critical-control-path",
+      "description": "SAFETY-CRITICAL: adapters, command-safety, circuit-breaker, and energy controllers control real electrical hardware. Surface risks for human review; NEVER suggest silent edits to control logic, hardware commands, rate limiting, or safety guardrails. Validate hardware commands via Zod schema + rate limits + audit trail.",
+      "files": [
+        "apps/web/src/core/adapters/**/*.ts",
+        "apps/web/src/core/command-safety.ts",
+        "apps/web/src/core/circuit-breaker.ts",
+        "apps/web/src/core/energy-controllers.ts"
+      ],
+      "scope": ["ide", "pr"]
+    },
+    {
+      "id": "api-zod-and-auth",
+      "description": "Express 5 backend. Validate every incoming datapoint with Zod safeParse before use and route failures to the Dead-Letter Queue. Auth (requireJWT), rate limits, and the OCPP mTLS proxy are security-sensitive — request explicit human review rather than proposing auto-fixes.",
+      "files": ["apps/api/src/**/*.ts", "!**/*.test.ts"],
+      "scope": ["ide", "pr"]
+    },
+    {
+      "id": "shared-types-breaking",
+      "description": "packages/shared-types holds Zod schemas + inferred types consumed by BOTH api and web. Any change is potentially breaking across packages — always call out cross-package compatibility.",
+      "files": ["packages/shared-types/src/**/*.ts"],
+      "scope": ["ide", "pr"]
+    }
+  ]
+}

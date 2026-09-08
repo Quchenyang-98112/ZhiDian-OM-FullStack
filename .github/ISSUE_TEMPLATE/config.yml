@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "\U0001F4D6 Dokumentation"
+    url: https://github.com/qnbs/Nexus-HEMS-Dash/blob/main/README.md
+    about: Lies die Dokumentation, bevor du ein Issue erstellst.
+  - name: "\U0001F6E1\uFE0F Sicherheitslücke melden"
+    url: https://github.com/qnbs/Nexus-HEMS-Dash/security/advisories/new
+    about: Sicherheitslücken bitte NICHT als Issue melden. Nutze GitHub Security Advisories.
+  - name: "\U0001F4AC Diskussionen"
+    url: https://github.com/qnbs/Nexus-HEMS-Dash/discussions
+    about: Fragen und Diskussionen bitte im Discussions-Bereich stellen.

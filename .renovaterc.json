@@ -1,0 +1,225 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "security:openssf-scorecard",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":automergeMinor",
+    "group:monorepos",
+    "group:recommended",
+    "replacements:all",
+    "workarounds:all"
+  ],
+  "schedule": ["before 7am on monday"],
+  "timezone": "Europe/Berlin",
+  "labels": ["dependencies", "renovate"],
+  "assignees": ["qnbs"],
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 10,
+  "rangeStrategy": "bump",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on monday"]
+  },
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"],
+    "schedule": ["at any time"],
+    "prPriority": 10,
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "description": "Security updates — highest priority, auto-merge",
+      "matchUpdateTypes": ["patch"],
+      "matchCategories": ["security"],
+      "prPriority": 10,
+      "automerge": true,
+      "schedule": ["at any time"]
+    },
+    {
+      "description": "Patch updates — auto-merge",
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "prPriority": 5
+    },
+    {
+      "description": "Minor updates — auto-merge after CI passes",
+      "matchUpdateTypes": ["minor"],
+      "automerge": true,
+      "prPriority": 3
+    },
+    {
+      "description": "Major updates — manual review required",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "prPriority": 1,
+      "labels": ["dependencies", "breaking"]
+    },
+    {
+      "description": "Group: React ecosystem",
+      "groupName": "React",
+      "matchPackageNames": [
+        "react",
+        "react-dom",
+        "@types/react",
+        "@types/react-dom",
+        "react-router-dom",
+        "react-i18next",
+        "i18next",
+        "i18next-browser-languagedetector"
+      ]
+    },
+    {
+      "description": "Group: React Compiler (Babel + ESLint plugin in lockstep)",
+      "groupName": "React Compiler",
+      "matchPackageNames": [
+        "babel-plugin-react-compiler",
+        "eslint-plugin-react-compiler",
+        "@rolldown/plugin-babel"
+      ]
+    },
+    {
+      "description": "Group: Testing tools",
+      "groupName": "Testing",
+      "matchPackageNames": [
+        "vitest",
+        "@vitest/coverage-v8",
+        "@vitest/ui",
+        "@playwright/test",
+        "@axe-core/playwright",
+        "@testing-library/react",
+        "@testing-library/dom",
+        "@testing-library/jest-dom",
+        "fake-indexeddb",
+        "fast-check",
+        "jsdom"
+      ]
+    },
+    {
+      "description": "Group: TypeScript & React-only ESLint plugins",
+      "groupName": "TypeScript & Linting",
+      "matchPackageNames": [
+        "typescript",
+        "tsx",
+        "eslint",
+        "eslint-plugin-react-hooks",
+        "eslint-plugin-react-refresh"
+      ]
+    },
+    {
+      "description": "Group: Biome (single PR for biome bumps)",
+      "groupName": "Biome",
+      "matchPackageNames": ["@biomejs/**"]
+    },
+    {
+      "description": "Group: Tailwind CSS v4",
+      "groupName": "Tailwind CSS",
+      "matchPackageNames": [
+        "tailwindcss",
+        "@tailwindcss/vite",
+        "@tailwindcss/container-queries",
+        "tailwind-merge",
+        "autoprefixer"
+      ]
+    },
+    {
+      "description": "Group: Vite & build tools",
+      "groupName": "Vite & Build",
+      "matchPackageNames": [
+        "vite",
+        "@vitejs/plugin-react",
+        "vite-plugin-pwa",
+        "rollup-plugin-visualizer",
+        "workbox-window",
+        "size-limit",
+        "@size-limit/file",
+        "source-map-explorer"
+      ]
+    },
+    {
+      "description": "Group: Storybook 10",
+      "groupName": "Storybook",
+      "matchPackageNames": ["@storybook/**", "storybook", "@chromatic-com/storybook", "chromatic"]
+    },
+    {
+      "description": "Group: Radix UI primitives",
+      "groupName": "Radix UI",
+      "matchPackageNames": ["@radix-ui/**"]
+    },
+    {
+      "description": "Group: TanStack",
+      "groupName": "TanStack",
+      "matchPackageNames": ["@tanstack/**"]
+    },
+    {
+      "description": "Group: Sentry SDK + CLI in lockstep",
+      "groupName": "Sentry",
+      "matchPackageNames": ["@sentry/**", "@sentry-internal/**"]
+    },
+    {
+      "description": "Group: D3 visualization",
+      "groupName": "D3",
+      "matchPackageNames": ["d3-sankey", "d3-selection", "@types/d3-sankey", "@types/d3-selection"]
+    },
+    {
+      "description": "Group: Express server stack",
+      "groupName": "Express",
+      "matchPackageNames": [
+        "express",
+        "@types/express",
+        "cors",
+        "@types/cors",
+        "helmet",
+        "express-rate-limit",
+        "supertest",
+        "@types/supertest",
+        "ws",
+        "@types/ws"
+      ]
+    },
+    {
+      "description": "Group: Capacitor (mobile shell)",
+      "groupName": "Capacitor",
+      "matchPackageNames": ["@capacitor/**"]
+    },
+    {
+      "description": "Group: semantic-release toolchain",
+      "groupName": "semantic-release",
+      "matchPackageNames": [
+        "semantic-release",
+        "@semantic-release/**",
+        "conventional-changelog-conventionalcommits"
+      ]
+    },
+    {
+      "description": "Group: commitlint + husky",
+      "groupName": "commit-tooling",
+      "matchPackageNames": ["@commitlint/**", "husky", "lint-staged", "anti-trojan-source"]
+    },
+    {
+      "description": "Group: GitHub Actions (single PR for action bumps)",
+      "groupName": "github-actions",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest"]
+    },
+    {
+      "description": "Pin TypeScript to ~5.8 (project constraint)",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "~5.8"
+    },
+    {
+      "description": "Pin pnpm to 10.33.x (must match packageManager + workflows)",
+      "matchPackageNames": ["pnpm"],
+      "allowedVersions": "~10.33.0"
+    },
+    {
+      "description": "Node.js 24 LTS — no Node 26 yet (Mai 2026)",
+      "matchPackageNames": ["node", "@types/node"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ],
+  "ignoreDeps": []
+}

@@ -1,0 +1,30 @@
+{
+  "recommendations": [
+    // ── Core toolchain ────────────────────────────────────────────
+    "biomejs.biome",
+    "dbaeumer.vscode-eslint",
+    "bradlc.vscode-tailwindcss",
+    "yoavbls.pretty-ts-errors",
+
+    // ── Testing ───────────────────────────────────────────────────
+    "vitest.explorer",
+    "ms-playwright.playwright",
+
+    // ── i18n ─────────────────────────────────────────────────────
+    "lokalise.i18n-ally",
+
+    // ── Editor quality ────────────────────────────────────────────
+    "usernamehw.errorlens",
+    "editorconfig.editorconfig",
+    "mikestead.dotenv",
+
+    // ── Git & GitHub ─────────────────────────────────────────────
+    "eamodio.gitlens",
+    "GitHub.vscode-pull-request-github",
+    "GitHub.copilot",
+
+    // ── Infrastructure ────────────────────────────────────────────
+    "ms-azuretools.vscode-docker",
+    "redhat.vscode-yaml"
+  ]
+}

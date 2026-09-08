@@ -1,0 +1,81 @@
+# CodeRabbit configuration for Nexus-HEMS-Dash
+# https://docs.coderabbit.ai/reference/configuration
+#
+# Role in the layered quality stack (see DEVOPS.md):
+#   CodeRabbit is the AI CONTEXTUAL-review layer. It complements — never
+#   duplicates — the deterministic gates (Biome/ESLint, tsc, CodeQL, Semgrep)
+#   and DeepSource. It is ADVISORY: it comments and summarizes but is not a
+#   required merge gate.
+#
+# Overlap avoidance: formatting/style is owned by Biome (ADR-001); security
+#   SAST by CodeQL/Semgrep/DeepSource; coverage by Codecov + baseline gate.
+#   CodeRabbit focuses on logic, architecture, readability, and domain risk.
+#
+# Docs: docs/runbooks/coderabbit-integration.md
+
+language: en-US
+early_access: false
+tone_instructions: 'Be assertive, specific, and concise. Cite file:line. Prioritize correctness, safety, and architectural fit over style nits already covered by Biome.'
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+      - develop
+
+  # Keep review scope on first-party source; skip generated/vendored/large assets.
+  path_filters:
+    - '!**/node_modules/**'
+    - '!**/dist/**'
+    - '!**/*.lock'
+    - '!pnpm-lock.yaml'
+    - '!**/*.generated.*'
+    - '!coverage/**'
+    - '!**/coverage/**'
+    - '!apps/web/storybook-static/**'
+    - '!apps/web/src-tauri/target/**'
+    - '!**/__snapshots__/**'
+    - '!**/*.min.js'
+    - '!**/*.bundle.js'
+
+  # Domain-aware guidance so reviews match repo conventions (mirrors CLAUDE.md,
+  # CONTRIBUTING.md, and docs/PR-FEEDBACK-PLAYBOOK.md).
+  path_instructions:
+    - path: 'apps/web/src/**/*.{ts,tsx}'
+      instructions: >-
+        React 19 with the React Compiler is enabled: do NOT suggest adding
+        manual useMemo/useCallback/memo unless the compiler provably cannot
+        handle the case. Enforce i18n — every user-visible string must use t()
+        with keys added to BOTH apps/web/src/locales/en.ts and de.ts. Require
+        type="button" on non-submit buttons and aria-hidden on decorative icons
+        (WCAG 2.2 AA). Never propose Redux/MobX or Tailwind v3 syntax.
+    - path: 'apps/web/src/core/**/*.ts'
+      instructions: >-
+        SAFETY-CRITICAL control path (adapters, command-safety, circuit-breaker,
+        energy controllers). Flag but NEVER auto-suggest silent edits to control
+        logic, hardware commands, rate limiting, or safety guardrails — surface
+        risks for human review instead.
+    - path: 'apps/api/src/**/*.ts'
+      instructions: >-
+        Express 5 backend. Validate every datapoint with Zod safeParse before
+        use. Auth (requireJWT), rate limits, and mTLS proxy paths are
+        security-sensitive — request human review rather than auto-fixes.
+    - path: 'packages/shared-types/src/**/*.ts'
+      instructions: >-
+        Shared Zod schemas + inferred types consumed by both api and web.
+        Changes here are breaking across packages — call out compatibility.
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: local

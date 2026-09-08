@@ -1,0 +1,19 @@
+# .trivyignore — Trivy misconfiguration suppression rules
+#
+# These suppressions apply to Trivy's static (pre-render) analysis of Helm
+# chart template files. Trivy reads raw Go template expressions such as
+#   {{ include "nexus-hems.imageRef" (dict ...) | quote }}
+# and cannot resolve them to actual image strings without executing Helm.
+# The actual image validation is enforced at `helm template` render time by
+# the `nexus-hems.assertTrustedImageRepository` helper in _helpers.tpl, which
+# calls `fail()` if the repository does not start with a prefix from
+# `.Values.image.trustedRegistries` (defaults to ["ghcr.io/qnbs/"]).
+#
+# Rule: KSV034 — Restrict container images to only those from approved registries
+# Rule: KSV-0125 — Restrict container images to trusted registries
+# Affected files: Helm deployment templates (static template text, not rendered output)
+# The actual image validation is enforced at `helm template` render time by
+# the `nexus-hems.assertTrustedImageRepository` helper in _helpers.tpl.
+
+KSV034
+KSV-0125

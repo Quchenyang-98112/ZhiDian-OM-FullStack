@@ -1,0 +1,162 @@
+name: CodeRabbit Re-Review
+
+# Proactively posts `@coderabbitai review` when the PR head commit has no CodeRabbit
+# review yet. Cursor Cloud agent tokens cannot create PR comments (403); this workflow
+# uses GITHUB_TOKEN with pull-requests: write instead.
+#
+# Note: `pull_request` events from fork PRs get a read-only GITHUB_TOKEN by default.
+# Fork PRs are covered via `workflow_run` after CI (base-repo context, write token).
+#
+# See docs/runbooks/coderabbit-integration.md
+
+on:
+  pull_request:
+    types:
+      - synchronize
+      - opened
+      - ready_for_review
+      - reopened
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to request CodeRabbit review on
+        required: true
+        type: number
+      force:
+        description: Post even if a request marker already exists for the head SHA
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: >-
+    coderabbit-rereview-${{
+      github.event.pull_request.number
+      || github.event.inputs.pr_number
+      || github.event.workflow_run.pull_requests[0].number
+      || format('branch-{0}', github.event.workflow_run.head_branch)
+      || github.run_id
+    }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  request-review:
+    name: Request CodeRabbit review
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.conclusion == 'success')
+    steps:
+      - name: Request CodeRabbit review on PR
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        with:
+          script: |
+            const CODERABBIT_LOGINS = new Set(['coderabbitai', 'coderabbitai[bot]']);
+            const MARKER_PREFIX = '<!-- coderabbit-review-request:';
+
+            const force = context.eventName === 'workflow_dispatch'
+              ? context.payload.inputs.force === 'true'
+              : false;
+
+            let prNumber;
+            if (context.eventName === 'workflow_dispatch') {
+              prNumber = Number(context.payload.inputs.pr_number);
+            } else if (context.eventName === 'pull_request') {
+              prNumber = context.payload.pull_request.number;
+            } else {
+              const prs = context.payload.workflow_run.pull_requests;
+              if (prs && prs.length > 0) {
+                prNumber = prs[0].number;
+              } else {
+                const headSha = context.payload.workflow_run.head_sha;
+                const { data: associated } =
+                  await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    commit_sha: headSha,
+                  });
+                const openPr = associated.find((pr) => pr.state === 'open');
+                if (!openPr) {
+                  core.info(
+                    `No open PR associated with workflow_run head SHA ${headSha}; skipping.`,
+                  );
+                  return;
+                }
+                prNumber = openPr.number;
+              }
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            if (pr.draft) {
+              core.info('PR is draft; CodeRabbit auto_review skips drafts — not requesting.');
+              return;
+            }
+
+            const sha = pr.head.sha;
+            const marker = `${MARKER_PREFIX}${sha} -->`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+
+            if (!force && comments.some((comment) => comment.body?.includes(marker))) {
+              core.info(`CodeRabbit review already requested for ${sha}; skipping.`);
+              return;
+            }
+
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+
+            const coderabbitReviewedHead = reviews.some(
+              (review) =>
+                CODERABBIT_LOGINS.has(review.user?.login ?? '') && review.commit_id === sha,
+            );
+
+            if (!force && coderabbitReviewedHead) {
+              core.info(`CodeRabbit already reviewed head commit ${sha}; skipping.`);
+              return;
+            }
+
+            const body = [
+              '@coderabbitai review',
+              '',
+              'Automated re-review request (`.github/workflows/coderabbit-rereview.yml`).',
+              'Triggered because the PR head commit has no CodeRabbit review yet.',
+              marker,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body,
+            });
+
+            core.info(`Posted CodeRabbit review request on PR #${prNumber} for ${sha}.`);

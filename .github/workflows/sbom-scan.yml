@@ -1,0 +1,169 @@
+name: SBOM Generation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Daily scan — 03:00 UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+# Read-only default; each job declares the least privilege it needs.
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ════════════════════════════════════════════════════════════════
+  #  1. Dependency Audit (pnpm)
+  # ════════════════════════════════════════════════════════════════
+  dependency-audit:
+    name: pnpm Dependency Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Run pnpm audit (production deps only)
+        run: pnpm audit --audit-level=high --prod
+        # Only audits production (non-dev) dependencies.
+        # Dev-tool CVEs (@log4brains/cli, @lhci/cli, autoprefixer) are informational
+        # and tracked in security-full.yml as low-risk dev-only findings.
+        continue-on-error: false
+
+  # ════════════════════════════════════════════════════════════════
+  #  2. Syft SBOM Generation (frontend image)
+  # ════════════════════════════════════════════════════════════════
+  sbom-frontend:
+    name: SBOM — Frontend Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write # upload-artifact via anchore/sbom-action
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build frontend Docker image
+        run: |
+          docker build \
+            --build-arg VCS_REF="${{ github.sha }}" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg VERSION="${{ github.ref_name }}" \
+            -t nexus-hems-frontend:${{ github.sha }} \
+            -f Dockerfile .
+
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: nexus-hems-frontend:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom-frontend.spdx.json
+          artifact-name: sbom-frontend-${{ github.sha }}.spdx.json
+
+      - name: Validate Grype policy
+        run: bash scripts/verify-grype-policy.sh
+
+      - name: Scan frontend image (Grype)
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7
+        with:
+          image: nexus-hems-frontend:${{ github.sha }}
+          config: .grype.yaml
+          fail-build: true
+          severity-cutoff: critical
+          output-format: sarif
+
+  # ════════════════════════════════════════════════════════════════
+  #  3. Syft SBOM Generation (backend image)
+  # ════════════════════════════════════════════════════════════════
+  sbom-backend:
+    name: SBOM — Backend Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write # upload-artifact via anchore/sbom-action
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build backend Docker image
+        run: |
+          docker build \
+            --build-arg VCS_REF="${{ github.sha }}" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg VERSION="${{ github.ref_name }}" \
+            -t nexus-hems-backend:${{ github.sha }} \
+            -f Dockerfile.server .
+
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: nexus-hems-backend:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom-backend.spdx.json
+          artifact-name: sbom-backend-${{ github.sha }}.spdx.json
+
+      - name: Validate Grype policy
+        run: bash scripts/verify-grype-policy.sh
+
+      - name: Scan backend image (Grype)
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7
+        with:
+          image: nexus-hems-backend:${{ github.sha }}
+          config: .grype.yaml
+          fail-build: true
+          severity-cutoff: critical
+          output-format: sarif
+
+  # ════════════════════════════════════════════════════════════════
+  #  4. Filesystem SBOM (source code + dependencies)
+  # ════════════════════════════════════════════════════════════════
+  sbom-source:
+    name: SBOM — Source & Dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write # upload-artifact via anchore/sbom-action
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Generate filesystem SBOM (syft)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom-source.spdx.json
+          artifact-name: sbom-source-${{ github.sha }}.spdx.json
+
+      - name: Validate Grype policy
+        run: bash scripts/verify-grype-policy.sh
+
+      - name: Scan source SBOM (Grype)
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7
+        with:
+          sbom: sbom-source.spdx.json
+          config: .grype.yaml
+          fail-build: true
+          severity-cutoff: critical
+          output-format: sarif

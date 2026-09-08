@@ -1,0 +1,72 @@
+name: Capacitor Android
+
+# Opt-in mobile build-check for the Capacitor Android target. capacitor.config.ts
+# exists but the native android/ios projects are generated (not committed) and
+# @capacitor/android is not a committed dependency, so this workflow bootstraps the
+# Android platform ephemerally in CI and verifies it assembles. It is NOT a required
+# check: it runs on demand (workflow_dispatch) and when the Capacitor config or this
+# workflow changes, so it never blocks PRs. Uses the Android SDK + JDK preinstalled on
+# the ubuntu-latest runner — no extra third-party actions to pin.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/capacitor.config.ts'
+      - '.github/workflows/capacitor-android.yml'
+
+permissions: read-all
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: capacitor-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-build-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build web assets (dist)
+        run: pnpm --filter @nexus-hems/web build
+
+      - name: Add Capacitor Android platform (ephemeral — not committed)
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          # Match the installed @capacitor/core major (8.x).
+          pnpm add -D "@capacitor/android@^8" -w false 2>/dev/null \
+            || pnpm add -D "@capacitor/android@^8"
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Gradle assembleDebug (build-check)
+        working-directory: apps/web/android
+        run: |
+          set -euo pipefail
+          # Capacitor 8's Android project targets Java 21; the runner default JDK is
+          # older. Use the JDK 21 preinstalled on ubuntu-latest.
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          echo "Using JAVA_HOME=$JAVA_HOME ($(java -version 2>&1 | head -1))"
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Summarize
+        if: always()
+        run: echo "Capacitor Android build-check completed (debug APK assemble)." >> "$GITHUB_STEP_SUMMARY"

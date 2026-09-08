@@ -1,0 +1,184 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.2/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "apps/**",
+      "packages/**",
+      "commitlint.config.js",
+      "**/*.json",
+      "**/*.css",
+      "**/*.html",
+      "**/*.md",
+      "**/*.yml",
+      "**/*.yaml",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/coverage",
+      "!**/.lighthouseci",
+      "!**/src-tauri",
+      "!**/storybook-static",
+      "!**/playwright-report",
+      "!**/test-results",
+      "!pnpm-lock.yaml",
+      "!apps/web/src/vite-env.d.ts",
+      "!apps/web/public",
+      "!graphify-out",
+      "!**/.claude",
+      "!grafana"
+    ]
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": { "maxAllowedComplexity": 25 }
+        },
+        "noUselessEscapeInRegex": "warn",
+        "noForEach": "off",
+        "useLiteralKeys": "warn"
+      },
+      "correctness": {
+        "noUnusedImports": "warn",
+        "noUnusedVariables": "error",
+        "noUnusedFunctionParameters": "warn",
+        "useExhaustiveDependencies": "off",
+        "useHookAtTopLevel": "error",
+        "noUndeclaredVariables": "off",
+        "noUndeclaredDependencies": "off"
+      },
+      "performance": {
+        "noAccumulatingSpread": "error",
+        "noBarrelFile": "off",
+        "noReExportAll": "off"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "warn",
+        "noDangerouslySetInnerHtmlWithChildren": "error"
+      },
+      "style": {
+        "noNonNullAssertion": "off",
+        "useNodejsImportProtocol": "off",
+        "noDefaultExport": "off",
+        "useImportType": "warn",
+        "useConst": "error",
+        "useTemplate": "warn",
+        "noUselessElse": "warn",
+        "useCollapsedElseIf": "warn"
+      },
+      "a11y": {
+        "noLabelWithoutControl": "error",
+        "useButtonType": "error",
+        "useSemanticElements": "error",
+        "noSvgWithoutTitle": "error",
+        "noAriaHiddenOnFocusable": "error",
+        "noRedundantRoles": "error",
+        "useAriaPropsSupportedByRole": "error",
+        "noAutofocus": "error",
+        "useAriaPropsForRole": "error",
+        "useFocusableInteractive": "error",
+        "noStaticElementInteractions": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noArrayIndexKey": "warn",
+        "noConsole": "off",
+        "noDuplicateElseIf": "warn",
+        "noAssignInExpressions": "warn",
+        "noDoubleEquals": "warn",
+        "noImplicitAnyLet": "error",
+        "noShadowRestrictedNames": "warn",
+        "noShorthandPropertyOverrides": "warn",
+        "useIterableCallbackReturn": "warn"
+      },
+      "nursery": {
+        "useSortedClasses": {
+          "level": "warn",
+          "options": {
+            "functions": ["clsx", "cn", "cva", "cx"],
+            "attributes": ["className", "class"]
+          }
+        }
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "lineWidth": 100,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf",
+    "attributePosition": "auto"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "bracketSpacing": true,
+      "arrowParentheses": "always",
+      "quoteProperties": "asNeeded",
+      "bracketSameLine": false
+    },
+    "parser": {
+      "unsafeParameterDecoratorsEnabled": false
+    }
+  },
+  "json": {
+    "formatter": {
+      "trailingCommas": "none"
+    },
+    "parser": {
+      "allowComments": true,
+      "allowTrailingCommas": false
+    }
+  },
+  "css": {
+    "formatter": {
+      "quoteStyle": "single"
+    },
+    "parser": {
+      "tailwindDirectives": true
+    },
+    "linter": {
+      "enabled": true
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["**/vite.config.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["index.html"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noInnerDeclarations": "off",
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    }
+  ]
+}

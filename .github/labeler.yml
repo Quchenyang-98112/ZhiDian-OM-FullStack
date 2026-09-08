@@ -1,0 +1,131 @@
+# ──────────────────────────────────────────────
+# PR Labeler Configuration (actions/labeler v5)
+# Maps file globs to labels applied on PRs
+# ──────────────────────────────────────────────
+
+# ── Area labels ──────────────────────────────
+
+'area: components':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/src/components/**
+
+'area: pages':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/src/pages/**
+
+'area: adapters':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/src/core/adapters/**
+          - apps/web/src/core/useEnergyStore.ts
+          - apps/web/src/core/adapter-*.ts
+
+'area: api':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/api/**
+
+'area: shared-types':
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/shared-types/**
+
+'area: design-system':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/src/index.css
+          - apps/web/src/design-tokens.ts
+          - DESIGN-SYSTEM.md
+
+'area: i18n':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/src/locales/**
+          - apps/web/src/i18n.ts
+
+'area: ai':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/src/core/aiClient.ts
+          - apps/web/src/lib/predictive-ai.ts
+          - apps/web/src/lib/optimizer.ts
+          - apps/web/src/lib/ml-forecast.ts
+          - apps/web/src/lib/ai-keys.ts
+          - apps/web/src/pages/AISettingsPage.tsx
+          - apps/web/src/pages/OptimizationAI.tsx
+          - apps/web/src/components/AIOptimizerPanel.tsx
+          - apps/web/src/components/EnhancedAIOptimizer.tsx
+
+'area: pwa':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/src/lib/offline-cache.ts
+          - apps/web/src/lib/background-sync.ts
+          - apps/web/src/lib/pwa-install.ts
+          - apps/web/src/components/OfflineBanner.tsx
+          - apps/web/src/components/PWA*.tsx
+          - apps/web/public/manifest.json
+
+'area: security':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/api/src/middleware/auth.ts
+          - apps/api/src/jwt-utils.ts
+          - apps/web/src/lib/crypto.ts
+          - apps/web/src/lib/secure-store.ts
+          - apps/web/src/core/command-safety.ts
+          - SECURITY.md
+          - .gitleaks.toml
+
+# ── Type labels ──────────────────────────────
+
+'type: ci':
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/**
+          - .github/dependabot.yml
+          - .github/labeler.yml
+
+'type: docs':
+  - changed-files:
+      - any-glob-to-any-file:
+          - '*.md'
+          - docs/**
+          - LICENSE
+
+'type: tests':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/src/tests/**
+          - apps/web/tests/**
+          - apps/web/vitest.config.ts
+          - apps/web/playwright.config.ts
+
+'type: config':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/vite.config.ts
+          - apps/web/tailwind.config.ts
+          - tsconfig.base.json
+          - turbo.json
+          - pnpm-workspace.yaml
+          - eslint.config.js
+          - biome.json
+          - package.json
+          - apps/*/package.json
+          - packages/*/package.json
+
+'type: docker':
+  - changed-files:
+      - any-glob-to-any-file:
+          - Dockerfile
+          - Dockerfile.server
+          - docker-compose.yml
+          - apps/web/nginx.conf
+
+'type: tauri':
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/src-tauri/**

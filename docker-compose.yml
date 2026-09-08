@@ -1,0 +1,286 @@
+# ── Nexus HEMS Dashboard — Production Docker Compose ─────────────────
+#
+# Network Architecture:
+#   frontend  — public-facing (nginx reverse proxy, dashboard)
+#   backend   — internal (app server, WebSocket, Prometheus metrics)
+#   adapters  — isolated (protocol adapters ↔ physical devices)
+#
+# Security:
+#   - read_only containers, no-new-privileges
+#   - network isolation: adapters cannot reach frontend directly
+#   - Prometheus scrapes only from backend network
+#
+# Usage:
+#   docker compose up -d
+#   docker compose --profile monitoring up -d   # with Prometheus + Grafana
+#
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Frontend: Static Dashboard (nginx) ──────────────────────────
+  nexus-hems:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nexus-hems-dash
+    ports:
+      - '8080:8080'
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /run
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - TZ=Europe/Berlin
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8080/']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    labels:
+      - 'com.nexus-hems.component=dashboard'
+      - 'com.nexus-hems.version=1.1.0'
+
+  # ── Backend: App Server (WebSocket + REST + Prometheus /metrics) ─
+  nexus-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: nexus-hems-server
+    ports:
+      - '3000:3000'
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - TZ=Europe/Berlin
+      - NODE_ENV=production
+      - ADAPTER_MODE=mock
+      # API_KEY_SCOPES: comma-separated "key:scope" pairs to bind scopes to keys
+      # e.g., API_KEY_SCOPES=monitorkey:read,appkey:readwrite,adminkey:admin
+      # If unset, all keys default to "readwrite" scope
+    secrets:
+      - jwt_secret
+    networks:
+      backend:
+        aliases:
+          - api
+      adapters: {}
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health']
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    labels:
+      - 'com.nexus-hems.component=server'
+
+  # ── Adapter Bridge: Protocol isolation layer ────────────────────
+  # Connects to physical devices (Victron, KNX, OCPP, EEBUS)
+  # on the adapter network, forwards data to backend
+  adapter-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: nexus-adapter-bridge
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - TZ=Europe/Berlin
+      - NODE_ENV=production
+      - ADAPTER_MODE=mock
+    networks:
+      - adapters
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/health']
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    labels:
+      - 'com.nexus-hems.component=adapter-bridge'
+    # Adapter-specific ports (uncomment as needed):
+    # ports:
+    #   - '1880:1880'   # Victron MQTT
+    #   - '502:502'     # Modbus TCP
+    #   - '3671:3671'   # KNX/IP
+    #   - '9000:9000'   # OCPP WebSocket
+    #   - '4712:4712'   # EEBUS SHIP
+
+  # ── Prometheus (monitoring profile) ─────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: nexus-prometheus
+    profiles:
+      - monitoring
+    restart: unless-stopped
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=1GB'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:9090/-/healthy']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    labels:
+      - 'com.nexus-hems.component=monitoring'
+
+  # ── Grafana (monitoring profile) ────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: nexus-grafana
+    profiles:
+      - monitoring
+    restart: unless-stopped
+    ports:
+      - '3001:3000'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - backend
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      # CRIT-04: No default password — GRAFANA_PASSWORD env var is mandatory.
+      # docker compose will fail with a clear error if this is not set.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD env var is required for Grafana. Set it before starting the monitoring stack.}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_FEATURE_TOGGLES_ENABLE=newPanelChromeUI
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    labels:
+      - 'com.nexus-hems.component=grafana'
+
+  # ── Alertmanager (monitoring profile) ───────────────────────────
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: nexus-alertmanager
+    profiles:
+      - monitoring
+    restart: unless-stopped
+    ports:
+      - '9093:9093'
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - 'com.nexus-hems.component=alertmanager'
+
+  # ── Node Exporter (monitoring profile) ──────────────────────────
+  node-exporter:
+    image: prom/node-exporter:v1.9.0
+    container_name: nexus-node-exporter
+    profiles:
+      - monitoring
+    restart: unless-stopped
+    ports:
+      - '9100:9100'
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - 'com.nexus-hems.component=node-exporter'
+
+  # ── InfluxDB (time-series database for historical analytics) ────
+  influxdb:
+    image: influxdb:2.7
+    container_name: nexus-influxdb
+    profiles:
+      - monitoring
+    restart: unless-stopped
+    ports:
+      - '8086:8086'
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    networks:
+      - backend
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=nexus
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:-nexus-hems-2026}
+      - DOCKER_INFLUXDB_INIT_ORG=nexus-hems
+      - DOCKER_INFLUXDB_INIT_BUCKET=energy_data
+      - DOCKER_INFLUXDB_INIT_RETENTION=365d
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:-nexus-hems-influx-token}
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ['CMD', 'influx', 'ping']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - 'com.nexus-hems.component=influxdb'
+
+# ── Networks ──────────────────────────────────────────────────────
+networks:
+  frontend:
+    name: nexus-frontend
+    driver: bridge
+    internal: false
+    labels:
+      - 'com.nexus-hems.network=frontend'
+
+  backend:
+    name: nexus-backend
+    driver: bridge
+    internal: true
+    labels:
+      - 'com.nexus-hems.network=backend'
+
+  adapters:
+    name: nexus-adapters
+    driver: bridge
+    internal: false # Needs external access for device protocols
+    labels:
+      - 'com.nexus-hems.network=adapters'
+
+# ── Volumes ───────────────────────────────────────────────────────
+volumes:
+  prometheus-data:
+    name: nexus-prometheus-data
+  grafana-data:
+    name: nexus-grafana-data
+  influxdb-data:
+    name: nexus-influxdb-data
+  influxdb-config:
+    name: nexus-influxdb-config
+
+# ── Secrets ───────────────────────────────────────────────────────
+# Create the secret file before running:
+#   openssl rand -base64 64 > .secrets/jwt_secret
+secrets:
+  jwt_secret:
+    file: .secrets/jwt_secret

@@ -1,0 +1,76 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Dev Server",
+      "type": "shell",
+      "command": "pnpm dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "pnpm build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Type Check",
+      "type": "shell",
+      "command": "pnpm type-check",
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Lint",
+      "type": "shell",
+      "command": "pnpm lint",
+      "group": "build",
+      "problemMatcher": ["$eslint-stylish"]
+    },
+    {
+      "label": "Type Check + Lint",
+      "type": "shell",
+      "command": "time pnpm type-check && pnpm lint",
+      "group": "build",
+      "problemMatcher": ["$tsc", "$eslint-stylish"]
+    },
+    {
+      "label": "Test (Watch)",
+      "type": "shell",
+      "command": "pnpm test",
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Test (Run)",
+      "type": "shell",
+      "command": "pnpm test:run",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install Dependencies",
+      "type": "shell",
+      "command": "pnpm install",
+      "problemMatcher": []
+    },
+    {
+      "label": "Storybook",
+      "type": "shell",
+      "command": "pnpm storybook",
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": "build"
+    }
+  ]
+}

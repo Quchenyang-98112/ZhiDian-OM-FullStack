@@ -1,0 +1,36 @@
+# Pre-commit hooks for Nexus HEMS Dashboard
+# Install: pip install pre-commit && pre-commit install
+# Run all: pre-commit run --all-files
+
+repos:
+  # ─── Standard hooks (trailing whitespace, EOF, YAML, JSON) ────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+        exclude: ^(\.vscode/|tsconfig\.json)
+      - id: detect-private-key
+        exclude: (apps/web/src/components/AdapterConfigPanel\.tsx|\.gitleaks\.toml)
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+  # ─── Gitleaks: Secret Detection ────────────────────────────────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks
+
+  # ─── Anti-Trojan-Source: Unicode Bidi Detection ────────────────
+  - repo: local
+    hooks:
+      - id: anti-trojan-source
+        name: Anti-Trojan-Source (Unicode Bidi)
+        entry: bash -c 'pnpm exec anti-trojan-source --files="apps/**/*.{ts,tsx,js,jsx}" || true'
+        language: system
+        files: \.(ts|tsx|js|jsx)$
+        pass_filenames: false

@@ -1,0 +1,48 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+# Local secret material (Docker secrets, etc.) — never commit.
+.secrets/
+playwright-report/
+test-results/
+storybook-static/
+
+# Turborepo local cache
+.turbo/
+
+# Claude Code internal files
+.claude/agents/
+.claude/skills/
+.claude/scheduled_tasks.lock
+
+# Local Chrome for testing
+chrome/
+.lighthouseci/
+.runtime/
+
+# Toolchain benchmark reports
+.perf/
+
+# Graphify knowledge graph (auto-generated, AST-only, no API cost to rebuild)
+graphify-out/
+.codegraph/
+
+# Runtime audit logs (append-only NDJSON written by the API at runtime)
+apps/api/data/*.ndjson
+
+# FastAPI adapter runtime uploads; curated seed knowledge under backend/data/knowledge is tracked.
+backend/data/runtime/*
+!backend/data/runtime/knowledge/
+backend/data/runtime/knowledge/*
+!backend/data/runtime/knowledge/.gitkeep
+backend/**/__pycache__/
+*.pyc
+
+# TypeScript / ESLint incremental caches
+*.tsbuildinfo
+.eslintcache

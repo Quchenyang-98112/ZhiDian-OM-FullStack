@@ -1,0 +1,32 @@
+name: Security Fuzz
+
+# Supplementary scheduled fuzz runs. Primary gate is the fuzz-tests job in ci.yml (LOW-09).
+on:
+  schedule:
+    - cron: '0 5 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  # Scheduled/manual only (never PR) — don't cancel an in-flight fuzz run.
+  cancel-in-progress: false
+
+jobs:
+  fuzz-tests:
+    name: Security Fuzz Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Run security fuzz tests
+        run: pnpm test:fuzz

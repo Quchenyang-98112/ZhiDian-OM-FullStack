@@ -1,0 +1,19 @@
+{{- if gt (int .Values.replicaCount.server) 1 }}
+{{- if not .Values.server.redisUrl }}
+⚠️  WARNING: server.replicaCount is {{ .Values.replicaCount.server }} but server.redisUrl is not set.
+    Offline sync version, settings diff, and command idempotency are process-local without Redis.
+    Set server.redisUrl (maps to REDIS_URL) for multi-pod deployments.
+{{- end }}
+{{- end }}
+
+Nexus-HEMS Dashboard has been deployed.
+
+  Frontend: {{ if .Values.ingress.enabled }}https://{{ .Values.ingress.host }}{{ else }}kubectl port-forward svc/{{ include "nexus-hems.fullname" . }}-frontend {{ .Values.service.frontend.port }}:{{ .Values.service.frontend.port }}{{ end }}
+  API:      ClusterIP port {{ .Values.service.server.port }}
+
+For offline sync in HA mode, configure Redis:
+
+  helm upgrade --install nexus-hems ./helm/nexus-hems \
+    --set server.redisUrl=redis://redis:6379
+
+See docs/adr/ADR-030-offline-sync-redis-persistence.md

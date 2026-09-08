@@ -1,0 +1,443 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-primary-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 is set per-job (workflow-level `env` breaks
+# OpenSSF Scorecard SARIF publish — see scorecard-action workflow restrictions).
+
+jobs:
+  lint-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Security Audit
+        run: pnpm audit --audit-level=high --prod || true
+
+      - name: Lint
+        run: pnpm lint
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Biome CI (whole-repo gate)
+        run: pnpm lint:all
+
+      - name: Adapter-count drift guard (F-04)
+        run: pnpm check:adapters
+
+      - name: Type Check
+        run: pnpm type-check
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+  helm-chart:
+    name: Helm Chart Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Helm
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | DESIRED_VERSION=v3.16.4 bash
+          helm version --short
+
+      - name: Lint Helm chart
+        run: helm lint helm/nexus-hems
+
+      - name: Render chart template smoke
+        run: helm template nexus-hems helm/nexus-hems > /tmp/nexus-hems-rendered.yaml
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint-typecheck
+    timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # fetch-depth 2 lets Codecov resolve the comparison base commit.
+          fetch-depth: 2
+          # Read-only test job — don't leave GITHUB_TOKEN in .git/config (zizmor artipacked).
+          persist-credentials: false
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: API Unit Tests with Coverage
+        run: |
+          echo "::group::@nexus-hems/api coverage"
+          pnpm --filter @nexus-hems/api test:coverage
+          echo "::endgroup::"
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Web Unit Tests with Coverage
+        run: |
+          echo "::group::@nexus-hems/web coverage"
+          pnpm test:coverage
+          echo "::endgroup::"
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: AI-Core Unit Tests with Coverage
+        run: |
+          echo "::group::@nexus-hems/ai-core coverage"
+          pnpm --filter @nexus-hems/ai-core test:coverage
+          echo "::endgroup::"
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Coverage baseline gate (PRF-03 + F-05a)
+        run: pnpm check:coverage-baseline
+
+      # Codecov is ADVISORY (informational status, see .codecov.yml). The blocking
+      # coverage gate is the PRF-03 baseline step above. fail_ci_if_error stays false
+      # so a Codecov outage never blocks the merge. Requires the CODECOV_TOKEN secret.
+      - name: Upload web coverage to Codecov
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: apps/web/coverage/lcov.info
+          flags: web
+          fail_ci_if_error: false
+          disable_search: true
+
+      - name: Upload api coverage to Codecov
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: apps/api/coverage/lcov.info
+          flags: api
+          fail_ci_if_error: false
+          disable_search: true
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: coverage-report
+          path: apps/web/coverage/
+          retention-days: 14
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: lint-typecheck
+    timeout-minutes: 30
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build
+        run: pnpm build
+        env:
+          VITE_E2E_TESTING: 'true'
+          VITE_BACKEND_WS: 'true'
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Resolve web app version
+        id: web-version
+        run: |
+          VERSION=$(node -p "require('./apps/web/package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved web app version: ${VERSION}"
+
+      - name: Sentry Source Maps Upload
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          WEB_VERSION: ${{ steps.web-version.outputs.version }}
+        run: |
+          if [ -n "$SENTRY_AUTH_TOKEN" ]; then
+            RELEASE="nexus-hems@${WEB_VERSION}"
+            npx @sentry/cli releases new "$RELEASE"
+            npx @sentry/cli releases files "$RELEASE" upload-sourcemaps apps/web/dist/assets --url-prefix '~/Nexus-HEMS-Dash/assets'
+            npx @sentry/cli releases finalize "$RELEASE"
+            echo "✅ Sentry source maps uploaded for $RELEASE"
+          else
+            echo "⏭️ SENTRY_AUTH_TOKEN not set — skipping source map upload"
+          fi
+
+      # Bundle-size enforcement is delegated to size-limit, which is the
+      # single source of truth (`apps/web/package.json` "size-limit" field).
+      # The previous inline check was uncompressed-vs-gzipped inconsistent.
+      - name: Size Limit Check
+        run: pnpm size
+        env:
+          VITE_E2E_TESTING: 'true'
+          VITE_BACKEND_WS: 'true'
+
+      # Production-build smoke test: loads the just-built dist/ in headless
+      # Chromium and fails if React does not mount or a runtime error fires.
+      # Catches "build succeeds but app white-screens" that unit tests cannot.
+      - name: Smoke-test production build (mounts, no runtime crash)
+        run: |
+          pnpm --filter @nexus-hems/web exec playwright install --with-deps chromium-headless-shell
+          pnpm --filter @nexus-hems/web smoke:prod
+        env:
+          CI: 'true'
+          VITE_E2E_TESTING: 'true'
+          VITE_BACKEND_WS: 'true'
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build
+          path: apps/web/dist/
+          retention-days: 7
+
+  # SLSA attestation runs in a separate job so a transient GitHub 403 does not
+  # skip E2E (build → e2e chain). Also runs on PRs to main for PR/main parity.
+  slsa-attest:
+    name: SLSA Build Provenance
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main')
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: build
+          path: apps/web/dist
+
+      - name: Generate SLSA build-provenance attestation (attempt 1/3)
+        id: slsa_attempt_1
+        continue-on-error: true
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: apps/web/dist/assets/*.js
+
+      - name: Wait before SLSA retry (45s)
+        if: steps.slsa_attempt_1.outcome == 'failure'
+        run: sleep 45
+
+      - name: Generate SLSA build-provenance attestation (attempt 2/3)
+        id: slsa_attempt_2
+        if: steps.slsa_attempt_1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: apps/web/dist/assets/*.js
+
+      - name: Wait before SLSA retry (90s)
+        if: steps.slsa_attempt_1.outcome == 'failure' && steps.slsa_attempt_2.outcome == 'failure'
+        run: sleep 90
+
+      - name: Generate SLSA build-provenance attestation (attempt 3/3)
+        id: slsa_attempt_3
+        if: steps.slsa_attempt_1.outcome == 'failure' && steps.slsa_attempt_2.outcome == 'failure'
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: apps/web/dist/assets/*.js
+
+      - name: Verify SLSA attestation outcome
+        if: always()
+        run: |
+          if [[ "${{ steps.slsa_attempt_1.outcome }}" == "success" ]] || \
+               [[ "${{ steps.slsa_attempt_2.outcome }}" == "success" ]] || \
+               [[ "${{ steps.slsa_attempt_3.outcome }}" == "success" ]]; then
+            echo "✅ SLSA build-provenance attestation succeeded"
+            exit 0
+          fi
+          echo "::error::SLSA attestation failed after 3 attempts (often transient GitHub 403 on attestations API). See docs/runbooks/ci-primary-gate.md#slsa-attestation-failures"
+          exit 1
+
+  e2e-tests:
+    name: 🎭 E2E Tests
+    runs-on: ubuntu-latest
+    needs: build
+    # PR CI runs Chromium only to keep the suite fast on ubuntu-latest. Firefox
+    # coverage can be added back via a separate matrix entry or nightly job once
+    # the suite is consistently under 15 min with both browsers.
+    timeout-minutes: 60
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: build
+          path: apps/web/dist
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-chromium-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright Chromium (browser only)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        run: pnpm --filter @nexus-hems/web exec playwright install chromium
+
+      - name: Install Playwright system dependencies
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        run: pnpm --filter @nexus-hems/web exec playwright install-deps chromium
+
+      - name: Run Playwright tests
+        # Invoke Playwright directly — dist/ is downloaded from the build job.
+        # Do not use `pnpm test:e2e` (turbo depends on `build` and can rebuild
+        # without VITE_BACKEND_WS, stripping the WS consumer from the preview bundle).
+        run: pnpm --filter @nexus-hems/web exec playwright test --project=chromium
+        env:
+          VITE_E2E_TESTING: 'true'
+
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # Security Gate — pnpm audit + dependency allowlist check
+  # This job BLOCKS CI on HIGH/CRITICAL vulnerabilities.
+  # Advisory-level findings do not block but do emit warnings.
+  # ──────────────────────────────────────────────
+  security:
+    name: Security Gate
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck]
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Audit — block on HIGH/CRITICAL CVEs (production deps only)
+        run: pnpm audit --audit-level=high --prod
+        # Only audits production (non-dev) dependencies.
+        # Dev-tool CVEs (@log4brains/cli, @lhci/cli, autoprefixer) are out of scope
+        # for production security and are tracked separately in sbom-scan.yml.
+
+      - name: Verify extended security workflows exist
+        run: |
+          if [ ! -f .github/workflows/security-full.yml ]; then
+            echo "::error::security-full.yml not found — required for extended SAST and secret scanning"
+            exit 1
+          fi
+          if [ ! -f .github/workflows/sbom-scan.yml ]; then
+            echo "::error::sbom-scan.yml not found — required for SBOM generation"
+            exit 1
+          fi
+          echo "✅ extended security workflows present"
+
+  fuzz-tests:
+    name: Security Fuzz Tests
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck]
+    timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Run security fuzz tests
+        run: pnpm test:fuzz
+
+  ci-passed:
+    name: ✅ CI Passed
+    runs-on: ubuntu-latest
+    if: always()
+    timeout-minutes: 5
+    needs:
+      - lint-typecheck
+      - helm-chart
+      - unit-tests
+      - build
+      - slsa-attest
+      - e2e-tests
+      - security
+      - fuzz-tests
+    steps:
+      - name: Evaluate full CI workflow
+        run: |
+          {
+            echo "## ✅ CI Gate Results"
+            echo ""
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            echo "| Lint & Type Check | ${{ needs.lint-typecheck.result }} |"
+            echo "| Helm Chart Lint | ${{ needs.helm-chart.result }} |"
+            echo "| Unit Tests (+ coverage) | ${{ needs.unit-tests.result }} |"
+            echo "| Build (+ size, smoke) | ${{ needs.build.result }} |"
+            echo "| SLSA Build Provenance | ${{ needs.slsa-attest.result }} |"
+            echo "| E2E Tests | ${{ needs.e2e-tests.result }} |"
+            echo "| Security Gate | ${{ needs.security.result }} |"
+            echo "| Fuzz Tests | ${{ needs.fuzz-tests.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          slsa_result="${{ needs.slsa-attest.result }}"
+          if [[ "${slsa_result}" != "success" && "${slsa_result}" != "skipped" ]]; then
+            echo "::error::SLSA attestation job did not pass (result: ${slsa_result})"
+            exit 1
+          fi
+          if [[ "${{ needs.lint-typecheck.result }}" != "success" || \
+                "${{ needs.helm-chart.result }}" != "success" || \
+                "${{ needs.unit-tests.result }}" != "success" || \
+                "${{ needs.build.result }}" != "success" || \
+                "${{ needs.e2e-tests.result }}" != "success" || \
+                "${{ needs.security.result }}" != "success" || \
+                "${{ needs.fuzz-tests.result }}" != "success" ]]; then
+            echo "::error::At least one required CI job did not pass"
+            exit 1
+          fi
+          echo "✅ All CI jobs passed"

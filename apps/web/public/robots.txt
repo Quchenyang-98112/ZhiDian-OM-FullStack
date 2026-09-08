@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://qnbs.github.io/Nexus-HEMS-Dash/

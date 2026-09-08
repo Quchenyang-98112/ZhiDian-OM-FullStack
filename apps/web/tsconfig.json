@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "noUncheckedIndexedAccess": false,
+    "tsBuildInfoFile": ".tsbuildinfo",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "exclude": ["**/*.stories.tsx", "**/*.stories.ts", ".storybook", "node_modules", "dist"]
+}

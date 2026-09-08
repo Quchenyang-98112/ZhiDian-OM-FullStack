@@ -1,0 +1,31 @@
+{
+  "name": "@nexus-hems/ai-core",
+  "version": "1.11.1",
+  "private": true,
+  "type": "module",
+  "description": "Unified local-first / hybrid AI orchestration layer for Nexus-HEMS",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check --error-on-warnings src/",
+    "test:run": "vitest run",
+    "test": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "comment:deferredEngines": "Local-LLM engines (WebLLM / Transformers.js / ONNX) are deferred and intentionally NOT shipped as dependencies (F-03 / ADR-029). To opt in, re-add the relevant package to dependencies here and set VITE_ENABLE_LOCAL_LLM. They are deliberately NOT declared as peerDependencies: this workspace runs auto-install-peers, which would reinstall the ~2.5 MB (38 packages) this PR removed.",
+  "dependencies": {
+    "comlink": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

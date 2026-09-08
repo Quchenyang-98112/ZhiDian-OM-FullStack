@@ -1,0 +1,23 @@
+# Nexus HEMS — Grafana Data Source Provisioning
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://nexus-prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: InfluxDB
+    type: influxdb
+    access: proxy
+    url: http://nexus-influxdb:8086
+    editable: false
+    jsonData:
+      version: Flux
+      organization: nexus-hems
+      defaultBucket: energy_data
+      tlsSkipVerify: false
+    secureJsonData:
+      token: ${INFLUXDB_TOKEN:-nexus-hems-influx-token}

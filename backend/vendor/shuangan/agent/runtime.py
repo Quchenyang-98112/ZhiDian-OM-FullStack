@@ -1,0 +1,1018 @@
+"""Agent runtime — orchestrates LLM, connectors, and domain logic.
+
+The :class:`Agent` is the central class of shuangan.  It receives
+messages (from Telegram, CLI, or programmatically), resolves entities,
+gathers context from connectors, calls the LLM with domain-aware
+prompts, and executes tool calls.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from dataclasses import asdict
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
+    from pathlib import Path
+
+import structlog
+
+from shuangan.agent.entity_resolver import EntityResolver
+from shuangan.agent.prompts import build_context_message, build_system_prompt
+from shuangan.connectors.base import ConnectorRegistry
+from shuangan.connectors.capabilities import Capability
+from shuangan.domain.plant import Plant
+from shuangan.exceptions import LLMError, PermissionDeniedError
+from shuangan.llm.provider import LLMProvider
+from shuangan.llm.tools import BUILTIN_TOOLS
+from shuangan.observability.tracing import ActionTracer
+from shuangan.workflows.engine import WorkflowEngine
+
+if TYPE_CHECKING:
+    from shuangan.workflows.models import Workflow, WorkflowResult
+
+logger = structlog.get_logger(__name__)
+
+
+class Agent:
+    """Maintenance AI agent that orchestrates reasoning and actions.
+
+    The agent receives user queries, resolves referenced assets,
+    gathers context from configured connectors, and uses an LLM to
+    produce grounded, domain-aware responses.
+
+    Args:
+        name: Human-readable agent name.
+        description: What this agent specialises in.
+        plant: The plant with its asset registry.
+        connectors: List of connector instances to register.
+        channels: Communication channels (Telegram, CLI, etc.).
+        llm: LLM provider string (e.g. ``"openai:gpt-4o"``) or
+             an :class:`LLMProvider` instance.
+        temperature: LLM sampling temperature.
+        max_history: Maximum conversation turns to keep in memory.
+        workflows: List of workflow definitions to register.
+        sandbox: If ``True``, write actions are logged but not executed.
+
+    Example:
+        ```python
+        from shuangan import Agent, Plant
+        from shuangan.connectors.cmms import GenericCmmsConnector
+        from shuangan.connectors.comms.telegram import CliChannel
+
+        plant = Plant(name="Demo Plant")
+        cmms = GenericCmmsConnector(data_dir="sample_data/cmms")
+
+        agent = Agent(
+            name="Maintenance Assistant",
+            plant=plant,
+            connectors=[cmms],
+            channels=[CliChannel()],
+            llm="openai:gpt-4o",
+        )
+        agent.run()
+        ```
+    """
+
+    def __init__(
+        self,
+        *,
+        name: str = "shuangan Agent",
+        description: str = "Maintenance AI assistant",
+        plant: Plant | None = None,
+        connectors: list[Any] | None = None,
+        channels: list[Any] | None = None,
+        llm: str | LLMProvider = "openai:gpt-4o",
+        temperature: float = 0.1,
+        max_history: int = 20,
+        workflows: list[Workflow] | None = None,
+        sandbox: bool = False,
+        allowed_tools: Collection[str] | None = None,
+        role_instruction: str = "",
+    ) -> None:
+        self.name = name
+        self.description = description
+        self.plant = plant or Plant(name="Default")
+        self._channels = channels or []
+        self._max_history = max_history
+        self._max_message_length = 10_000
+        self._allowed_tools = frozenset(allowed_tools) if allowed_tools is not None else None
+        self._role_instruction = role_instruction
+
+        # LLM provider
+        if isinstance(llm, str):
+            self._llm = LLMProvider(model=llm, temperature=temperature)
+        else:
+            self._llm = llm
+
+        # Connector registry
+        self._registry = ConnectorRegistry()
+        _registered_ids: set[int] = set()
+        for i, conn in enumerate(connectors or []):
+            cname = getattr(conn, "__class__", type(conn)).__name__
+            self._registry.register(f"{cname}_{i}", conn)
+            _registered_ids.add(id(conn))
+
+        # Channels are also registered so workflow steps that dispatch via
+        # ``find_by_capability`` (e.g. ``channels.send_message``) can reach
+        # comms connectors passed as ``channels=``. Dedup by identity: a
+        # connector passed to BOTH ``connectors=`` and ``channels=`` is
+        # registered once, not twice. See issue #31.
+        for i, chan in enumerate(self._channels):
+            if id(chan) in _registered_ids:
+                continue
+            cname = getattr(chan, "__class__", type(chan)).__name__
+            self._registry.register(f"channel_{cname}_{i}", chan)
+            _registered_ids.add(id(chan))
+
+        # Entity resolver
+        self._resolver = EntityResolver(self.plant)
+
+        # Action tracer
+        self.tracer = ActionTracer()
+
+        # Sandbox mode
+        self.sandbox = sandbox
+
+        # Workflow engine
+        self._workflows: dict[str, Workflow] = {}
+        self._engine = WorkflowEngine(
+            registry=self._registry,
+            tracer=self.tracer,
+            llm=self._llm,
+            sandbox=sandbox,
+        )
+        for wf in workflows or []:
+            self._workflows[wf.name] = wf
+
+        # Conversation history per chat
+        self._histories: dict[str, list[dict[str, str]]] = {}
+
+    # ------------------------------------------------------------------
+    # Public API — factory
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_config(cls, path: str | Path) -> Agent:
+        """Create an Agent from a ``shuangan.yaml`` configuration file.
+
+        Connectors and channels are instantiated from their ``type``
+        strings.  Workflows cannot be defined in YAML (they may
+        contain Python callables); register them after construction
+        with :meth:`register_workflow`.
+
+        Args:
+            path: Path to the YAML configuration file.
+
+        Returns:
+            A fully configured ``Agent`` instance.
+
+        Example:
+            ```python
+            from shuangan import Agent
+
+            agent = Agent.from_config("shuangan.yaml")
+            agent.run()
+            ```
+        """
+        from shuangan.config import load_config
+        from shuangan.connectors.factory import create_channel, create_connector
+
+        config = load_config(path)
+
+        plant = Plant(name=config.plant.name, location=config.plant.location)
+
+        connectors = [
+            create_connector(cc.type, cc.settings)
+            for cc in config.connectors.values()
+            if cc.enabled
+        ]
+
+        if config.channels:
+            channels = [create_channel(ch.type, ch.settings) for ch in config.channels]
+        else:
+            from shuangan.connectors.comms.telegram import CliChannel
+
+            channels = [CliChannel()]
+
+        return cls(
+            name=config.name,
+            description=config.description,
+            plant=plant,
+            connectors=connectors,
+            channels=channels,
+            llm=config.llm.provider,
+            temperature=config.llm.temperature,
+            sandbox=config.sandbox,
+        )
+
+    # ------------------------------------------------------------------
+    # Public API — workflows
+    # ------------------------------------------------------------------
+
+    @property
+    def workflows(self) -> dict[str, Workflow]:
+        """Registered workflows (read-only copy)."""
+        return dict(self._workflows)
+
+    def register_workflow(self, workflow: Workflow) -> None:
+        """Register a workflow for later execution.
+
+        Args:
+            workflow: The workflow definition to register.
+        """
+        self._workflows[workflow.name] = workflow
+        logger.info("workflow_registered", workflow=workflow.name)
+
+    async def trigger_workflow(
+        self,
+        workflow_name: str,
+        event: dict[str, Any] | None = None,
+    ) -> WorkflowResult:
+        """Trigger a registered workflow by name.
+
+        Args:
+            workflow_name: Name of a previously registered workflow.
+            event: Event data to pass to the workflow.
+
+        Returns:
+            A :class:`WorkflowResult` with per-step outcomes.
+
+        Raises:
+            WorkflowError: If the workflow is not found.
+        """
+        from shuangan.exceptions import WorkflowError
+
+        workflow = self._workflows.get(workflow_name)
+        if workflow is None:
+            raise WorkflowError(f"Workflow '{workflow_name}' not registered")
+        return await self._engine.execute(workflow, event)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Connect all connectors and load assets."""
+        channel_ids = {id(ch) for ch in self._channels}
+        for name, conn in self._registry.all().items():
+            # Channels are connected below, with a sandbox guard. Skip them
+            # here to avoid double-connect now that they share the registry.
+            if id(conn) in channel_ids:
+                continue
+            with self.tracer.trace("connector_connect", connector=name):
+                await conn.connect()
+            logger.info("connector_ready", connector=name)
+
+        # Auto-load assets from CMMS connectors
+        cmms_connectors = self._registry.find_by_capability(Capability.READ_ASSETS)
+        for cname, conn in cmms_connectors:
+            with self.tracer.trace("load_assets", connector=cname) as span:
+                assets = await conn.read_assets()  # type: ignore[attr-defined]
+                for asset in assets:
+                    self.plant.register_asset(asset)
+                span.output_summary = f"Loaded {len(assets)} assets"
+            logger.info(
+                "assets_loaded",
+                connector=cname,
+                count=len(assets),
+            )
+
+        # Auto-load failure modes and build domain services
+        self._build_domain_services()
+
+        # Connect channels. In sandbox mode we skip outbound I/O so
+        # channels like EmailConnector do not perform real SMTP logins.
+        # See issue #31.
+        for channel in self._channels:
+            cname = getattr(channel, "__class__", type(channel)).__name__
+            if self.sandbox:
+                logger.info("sandbox_skip_channel_connect", channel=cname)
+                continue
+            await channel.connect()
+
+        logger.info(
+            "agent_started",
+            agent=self.name,
+            asset_count=len(self.plant.assets),
+            connectors=list(self._registry.all().keys()),
+        )
+
+    def _build_domain_services(self) -> None:
+        """Build domain services from loaded data and register them with the workflow engine."""
+        from shuangan.domain.services.asset_service import AssetService
+        from shuangan.domain.services.failure_analyzer import FailureAnalyzer
+        from shuangan.domain.services.maintenance_scheduler import MaintenanceScheduler
+        from shuangan.domain.services.work_order_factory import WorkOrderFactory
+
+        # Collect failure modes from connectors that provide them
+        all_failure_modes = []
+        for _name, conn in self._registry.all().items():
+            if hasattr(conn, "_failure_modes"):
+                all_failure_modes.extend(conn._failure_modes)
+
+        # Collect maintenance plans from connectors that provide them
+        all_plans = []
+        for _name, conn in self._registry.all().items():
+            if hasattr(conn, "_maintenance_plans"):
+                all_plans.extend(conn._maintenance_plans)
+
+        analyzer = FailureAnalyzer(failure_modes=all_failure_modes)
+        factory = WorkOrderFactory()
+        scheduler = MaintenanceScheduler(plans=all_plans)
+        asset_service = AssetService(plant=self.plant)
+
+        self._engine._services = {
+            "failure_analyzer": analyzer,
+            "work_order_factory": factory,
+            "maintenance_scheduler": scheduler,
+            "domain": asset_service,
+        }
+
+        if all_failure_modes:
+            logger.info(
+                "domain_services_ready",
+                agent=self.name,
+                failure_modes=len(all_failure_modes),
+            )
+
+    async def stop(self) -> None:
+        """Disconnect all connectors and channels."""
+        channel_ids = {id(ch) for ch in self._channels}
+        for channel in self._channels:
+            cname = getattr(channel, "__class__", type(channel)).__name__
+            if self.sandbox:
+                logger.info("sandbox_skip_channel_disconnect", channel=cname)
+                continue
+            await channel.disconnect()
+        for _name, conn in self._registry.all().items():
+            if id(conn) in channel_ids:
+                continue
+            await conn.disconnect()
+        logger.info("agent_stopped", agent=self.name)
+
+    async def handle_message(self, text: str, *, chat_id: str = "default") -> str:
+        """Process a user message and return the agent's response.
+
+        This is the main entry point for programmatic usage.
+
+        Args:
+            text: The user's message.
+            chat_id: Identifier for the conversation.
+
+        Returns:
+            The agent's response text.
+
+        Raises:
+            LLMError: If the underlying LLM call fails.
+        """
+        if len(text) > self._max_message_length:
+            original_length = len(text)
+            text = text[: self._max_message_length]
+            logger.warning(
+                "message_truncated",
+                agent=self.name,
+                chat_id=chat_id,
+                original_length=original_length,
+                max_length=self._max_message_length,
+            )
+
+        logger.info(
+            "message_received",
+            agent=self.name,
+            chat_id=chat_id,
+            message_preview=text[:100],
+        )
+
+        # 1. Entity resolution
+        resolved = self._resolver.resolve(text)
+
+        # 2. Gather context from connectors
+        context_data = await self._gather_context(text, resolved)
+
+        # 3. Build messages
+        messages = self._build_messages(text, chat_id, context_data)
+
+        # 4. Call LLM (with tool-calling loop)
+        try:
+            response = await self._llm_loop(messages, chat_id)
+        except Exception as exc:
+            logger.error(
+                "llm_error",
+                agent=self.name,
+                error=str(exc),
+            )
+            raise LLMError(f"LLM call failed: {exc}") from exc
+
+        # 5. Update history
+        self._add_to_history(chat_id, "user", text)
+        self._add_to_history(chat_id, "assistant", response)
+
+        logger.info(
+            "response_generated",
+            agent=self.name,
+            chat_id=chat_id,
+            response_length=len(response),
+        )
+        return response
+
+    def run(self) -> None:
+        """Start the agent with all channels (blocking, sync wrapper).
+
+        Connects connectors, loads assets, and starts listening on
+        all configured channels.  Automatically detects Jupyter
+        notebooks and other environments with an already-running
+        event loop.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            # Already inside an event loop (Jupyter, async REPL, etc.)
+            # Schedule the coroutine on the existing loop.
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(asyncio.run, self._run_async()).result()
+        else:
+            asyncio.run(self._run_async())
+
+    async def _run_async(self) -> None:
+        """Async main loop — start agent and listen on channels."""
+        await self.start()
+
+        if not self._channels:
+            logger.warning("no_channels", agent=self.name)
+            return
+
+        # Use the first channel for listen (typically Telegram or CLI)
+        channel = self._channels[0]
+
+        async def _handler(msg: Any) -> str:
+            return await self.handle_message(msg.text, chat_id=msg.chat_id)
+
+        try:
+            await channel.listen(_handler)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
+        finally:
+            await self.stop()
+
+    # ------------------------------------------------------------------
+    # Internal: context gathering
+    # ------------------------------------------------------------------
+
+    async def _gather_context(
+        self,
+        text: str,
+        resolved: list[Any],
+    ) -> dict[str, Any]:
+        """Gather context from connectors based on resolved entities."""
+        context: dict[str, Any] = {
+            "resolved_entities": resolved,
+        }
+
+        if not resolved:
+            return context
+
+        asset = resolved[0].asset
+        context["asset"] = asset
+
+        # Gather work orders, spare parts in parallel
+        tasks: list[Any] = []
+        task_names: list[str] = []
+
+        wo_connectors = self._registry.find_by_capability(Capability.READ_WORK_ORDERS)
+        if wo_connectors:
+            wo_cname, wo_conn = wo_connectors[0]
+
+            async def _get_wos(_cname: str = wo_cname, _conn: Any = wo_conn) -> list[Any]:
+                with self.tracer.trace(
+                    "connector_query",
+                    connector=_cname,
+                    asset_id=asset.id,
+                    operation="read_work_orders",
+                ):
+                    return await _conn.read_work_orders(asset_id=asset.id)  # type: ignore[no-any-return]
+
+            tasks.append(_get_wos())
+            task_names.append("work_orders")
+
+        sp_connectors = self._registry.find_by_capability(Capability.READ_SPARE_PARTS)
+        if sp_connectors:
+            sp_cname, sp_conn = sp_connectors[0]
+
+            async def _get_parts(_cname: str = sp_cname, _conn: Any = sp_conn) -> list[Any]:
+                with self.tracer.trace(
+                    "connector_query",
+                    connector=_cname,
+                    asset_id=asset.id,
+                    operation="read_spare_parts",
+                ):
+                    return await _conn.read_spare_parts(asset_id=asset.id)  # type: ignore[no-any-return]
+
+            tasks.append(_get_parts())
+            task_names.append("spare_parts")
+
+        # Document search
+        doc_connectors = self._registry.find_by_capability(Capability.SEARCH_DOCUMENTS)
+        if doc_connectors:
+            doc_cname, doc_conn = doc_connectors[0]
+
+            async def _search_docs(_cname: str = doc_cname, _conn: Any = doc_conn) -> list[Any]:
+                with self.tracer.trace(
+                    "connector_query",
+                    connector=_cname,
+                    asset_id=asset.id,
+                    operation="search_documents",
+                ):
+                    results = await _conn.search(text, asset_id=asset.id)
+                    return [
+                        {
+                            "content": r.content,
+                            "source": r.source,
+                            "page": r.page,
+                        }
+                        for r in results
+                    ]
+
+            tasks.append(_search_docs())
+            task_names.append("document_results")
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for name, result in zip(task_names, results, strict=False):
+                if isinstance(result, BaseException):
+                    logger.warning(
+                        "context_gather_error",
+                        agent=self.name,
+                        source=name,
+                        error=str(result),
+                    )
+                else:
+                    context[name] = result
+
+        return context
+
+    # ------------------------------------------------------------------
+    # Internal: message building
+    # ------------------------------------------------------------------
+
+    def _build_messages(
+        self,
+        text: str,
+        chat_id: str,
+        context_data: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        """Build the LLM message list with system prompt, context, and history."""
+        # Gather all capabilities
+        all_caps: list[str] = []
+        for _, conn in self._registry.all().items():
+            all_caps.extend(conn.capabilities)
+
+        system = build_system_prompt(
+            plant_name=self.plant.name,
+            asset_count=len(self.plant.assets),
+            capabilities=all_caps,
+            role_instruction=self._role_instruction,
+        )
+
+        messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+
+        # Add domain context
+        context_str = build_context_message(
+            resolved_entities=context_data.get("resolved_entities"),
+            asset=context_data.get("asset"),
+            work_orders=context_data.get("work_orders"),
+            alarms=context_data.get("alarms"),
+            spare_parts=context_data.get("spare_parts"),
+            document_results=context_data.get("document_results"),
+        )
+        if context_str:
+            messages.append(
+                {"role": "system", "content": f"## Retrieved Context\n\n{context_str}"}
+            )
+
+        # Add conversation history
+        history = self._histories.get(chat_id, [])
+        messages.extend(history)
+
+        # Add current user message
+        messages.append({"role": "user", "content": text})
+
+        return messages
+
+    # ------------------------------------------------------------------
+    # Internal: LLM tool-calling loop
+    # ------------------------------------------------------------------
+
+    async def _llm_loop(
+        self,
+        messages: list[dict[str, str]],
+        chat_id: str,
+        *,
+        max_iterations: int = 5,
+    ) -> str:
+        """Call the LLM, execute tool calls, and return final response."""
+        tools = self._get_available_tools()
+
+        for _iteration in range(max_iterations):
+            with self.tracer.trace(
+                "llm_call",
+                operation="complete_with_tools",
+            ) as span:
+                if tools:
+                    result = await self._llm.complete_with_tools(messages, tools)
+                else:
+                    text = await self._llm.complete(messages)
+                    return text
+
+            content = result.get("content", "")
+            tool_calls = result.get("tool_calls")
+
+            if not tool_calls:
+                return content or ""
+
+            # Process tool calls
+            span.output_summary = f"{len(tool_calls)} tool calls"
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": content or "",
+                    "tool_calls": tool_calls,
+                }
+            )
+
+            for tc in tool_calls:
+                func_name = tc.function.name
+                try:
+                    args = json.loads(tc.function.arguments)
+                except (json.JSONDecodeError, AttributeError):
+                    args = {}
+
+                with self.tracer.trace(
+                    "tool_call",
+                    operation=func_name,
+                ) as tool_span:
+                    tool_result = await self._execute_tool(func_name, args)
+                    tool_span.output_summary = str(tool_result)[:200]
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "content": json.dumps(tool_result, default=str),
+                        "tool_call_id": tc.id,
+                    }
+                )
+
+        # Exhausted iterations — get final response without tools
+        return await self._llm.complete(messages)
+
+    async def _execute_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+    ) -> Any:
+        """Execute a tool call by dispatching to the appropriate connector."""
+        logger.debug("executing_tool", agent=self.name, tool=name, args=args)
+        self._ensure_tool_allowed(name)
+
+        if name == "search_assets":
+            return self._tool_search_assets(args.get("query", ""))
+
+        if name == "get_asset_details":
+            return self._tool_get_asset_details(args.get("asset_id", ""))
+
+        if name == "read_work_orders":
+            connectors = self._registry.find_by_capability(Capability.READ_WORK_ORDERS)
+            if connectors:
+                _, conn = connectors[0]
+                wos = await conn.read_work_orders(  # type: ignore[attr-defined]
+                    asset_id=args.get("asset_id", ""),
+                    status=args.get("status", ""),
+                )
+                return [wo.model_dump(mode="json") for wo in wos]
+            return {"error": "No CMMS connector available"}
+
+        if name == "create_work_order":
+            return await self._tool_create_work_order(args)
+
+        if name == "search_documents":
+            connectors = self._registry.find_by_capability(Capability.SEARCH_DOCUMENTS)
+            if connectors:
+                _, conn = connectors[0]
+                results = await conn.search(  # type: ignore[attr-defined]
+                    args.get("query", ""),
+                    asset_id=args.get("asset_id", ""),
+                )
+                return [
+                    {"content": r.content, "source": r.source, "page": r.page} for r in results
+                ]
+            return {"error": "No document connector available"}
+
+        if name == "check_spare_parts":
+            connectors = self._registry.find_by_capability(Capability.READ_SPARE_PARTS)
+            if connectors:
+                _, conn = connectors[0]
+                parts = await conn.read_spare_parts(  # type: ignore[attr-defined]
+                    asset_id=args.get("asset_id", ""),
+                    sku=args.get("sku", ""),
+                )
+                return [p.model_dump(mode="json") for p in parts]
+            return {"error": "No spare parts connector available"}
+
+        if name == "diagnose_failure":
+            return self._tool_diagnose_failure(
+                args.get("asset_id", ""),
+                args.get("symptoms", []),
+            )
+
+        if name == "predict_trend":
+            return await self._tool_predict_trend(args)
+
+        if name == "detect_anomalies":
+            return await self._tool_detect_anomalies(args)
+
+        if name == "get_maintenance_schedule":
+            return await self._tool_get_maintenance_schedule(args.get("asset_id", ""))
+
+        if name == "execute_workflow":
+            return await self._tool_execute_workflow(
+                args.get("workflow_name", ""),
+                args.get("event"),
+            )
+
+        return {"error": f"Unknown tool: {name}"}
+
+    async def execute_tool(self, name: str, args: dict[str, Any]) -> Any:
+        """Execute one tool for an internal specialist workflow."""
+        return await self._execute_tool(name, args)
+
+    # ------------------------------------------------------------------
+    # Tool implementations
+    # ------------------------------------------------------------------
+
+    def _tool_search_assets(self, query: str) -> list[dict[str, Any]]:
+        """Search assets using the entity resolver."""
+        resolved = self._resolver.resolve(query)
+        return [
+            {
+                "id": r.asset.id,
+                "name": r.asset.name,
+                "type": r.asset.type.value,
+                "location": r.asset.location,
+                "criticality": r.asset.criticality.value,
+                "confidence": r.confidence,
+            }
+            for r in resolved[:5]
+        ]
+
+    def _tool_get_asset_details(self, asset_id: str) -> dict[str, Any]:
+        """Get full asset details."""
+        try:
+            asset = self.plant.get_asset(asset_id)
+            return asset.model_dump(mode="json")
+        except Exception:
+            logger.warning(
+                "asset_lookup_failed",
+                agent=self.name,
+                asset_id=asset_id,
+                operation="get_asset_details",
+            )
+            return {"error": f"Asset {asset_id!r} not found"}
+
+    async def _get_sensor_readings(self, asset_id: str) -> dict[str, Any] | None:
+        connectors = self._registry.find_by_capability(Capability.GET_RELATED_READINGS)
+        if not connectors:
+            return None
+        _, conn = connectors[0]
+        return await conn.get_related_readings(asset_id)  # type: ignore[attr-defined]
+
+    async def _tool_create_work_order(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Create a work order via the CMMS connector."""
+        if self.sandbox:
+            logger.info(
+                "sandbox_create_work_order",
+                agent=self.name,
+                args=args,
+            )
+            return {"sandbox": True, "action": "create_work_order", "args": args}
+
+        from shuangan.domain.work_order import Priority, WorkOrder, WorkOrderType
+
+        connectors = self._registry.find_by_capability(Capability.CREATE_WORK_ORDER)
+        if not connectors:
+            return {"error": "No CMMS connector available for creating work orders"}
+
+        _, conn = connectors[0]
+        wo = WorkOrder(
+            id=f"WO-AUTO-{id(args) % 10000:04d}",
+            type=WorkOrderType(args.get("type", "corrective")),
+            priority=Priority(args.get("priority", "medium")),
+            asset_id=args.get("asset_id", ""),
+            description=args.get("description", ""),
+        )
+        created = await conn.create_work_order(wo)  # type: ignore[attr-defined]
+        logger.info(
+            "work_order_created",
+            agent=self.name,
+            work_order_id=created.id,
+            asset_id=created.asset_id,
+        )
+        return created.model_dump(mode="json")  # type: ignore[no-any-return]
+
+    def _tool_diagnose_failure(
+        self,
+        asset_id: str,
+        symptoms: list[str],
+    ) -> dict[str, Any]:
+        """Diagnose failure using the domain service."""
+        from shuangan.domain.alarm import Alarm, Severity
+
+        # Convert symptom strings to pseudo-alarms for the analyzer
+        alarms = [
+            Alarm(
+                id=f"SYMPTOM-{i}",
+                asset_id=asset_id,
+                severity=Severity.WARNING,
+                parameter=symptom,
+                value=0.0,
+                threshold=0.0,
+                unit="",
+            )
+            for i, symptom in enumerate(symptoms)
+        ]
+
+        try:
+            asset = self.plant.get_asset(asset_id)
+            analyzer = self._engine._services.get("failure_analyzer")
+            if analyzer is None:
+                return {
+                    "asset_id": asset_id,
+                    "asset_name": asset.name,
+                    "symptoms": symptoms,
+                    "probable_failures": [],
+                    "note": "Failure analyzer service is not initialized.",
+                }
+            results = analyzer.diagnose(alarms)
+            return {
+                "asset_id": asset_id,
+                "asset_name": asset.name,
+                "symptoms": symptoms,
+                "probable_failures": [
+                    {"code": fm.code, "name": fm.name, "category": fm.category} for fm in results
+                ],
+            }
+        except Exception:
+            logger.warning(
+                "diagnose_failure_failed",
+                agent=self.name,
+                asset_id=asset_id,
+                operation="diagnose_failure",
+                symptoms=symptoms,
+            )
+            return {
+                "asset_id": asset_id,
+                "symptoms": symptoms,
+                "probable_failures": [],
+                "note": "No failure mode data available for this asset.",
+            }
+
+    async def _tool_predict_trend(self, args: dict[str, Any]) -> dict[str, Any]:
+        from shuangan.autonomous.predictor import TrendPredictor
+
+        asset_id = args.get("asset_id", "")
+        parameter = args.get("parameter", "")
+        trend_data = await self._get_sensor_readings(asset_id)
+        if trend_data is None:
+            return {"error": "No sensor connector available"}
+
+        prediction = TrendPredictor().predict_trend(
+            asset_id=asset_id,
+            parameter=parameter,
+            readings=trend_data.get("readings", []),
+            threshold=args.get("threshold"),
+            lower_threshold=args.get("lower_threshold"),
+        )
+        if prediction is None:
+            return {
+                "asset_id": asset_id,
+                "parameter": parameter,
+                "prediction": None,
+                "note": "Insufficient sensor data for trend prediction.",
+            }
+        return asdict(prediction)
+
+    async def _tool_detect_anomalies(self, args: dict[str, Any]) -> dict[str, Any]:
+        from shuangan.autonomous.predictor import TrendPredictor
+
+        asset_id = args.get("asset_id", "")
+        parameter = args.get("parameter", "")
+        trend_data = await self._get_sensor_readings(asset_id)
+        if trend_data is None:
+            return {"error": "No sensor connector available"}
+
+        anomalies = TrendPredictor().detect_anomalies(
+            asset_id=asset_id,
+            parameter=parameter,
+            readings=trend_data.get("readings", []),
+            z_threshold=float(args.get("z_threshold", 2.5)),
+        )
+        return {"asset_id": asset_id, "parameter": parameter, "anomalies": [asdict(a) for a in anomalies]}
+
+    async def _tool_get_maintenance_schedule(self, asset_id: str) -> Any:
+        connectors = self._registry.find_by_capability(Capability.READ_MAINTENANCE_PLANS)
+        if not connectors:
+            return {"info": "Maintenance schedule lookup not yet connected to a data source."}
+
+        _, conn = connectors[0]
+        plans = await conn.read_maintenance_plans()  # type: ignore[attr-defined]
+        if asset_id:
+            plans = [plan for plan in plans if plan.asset_id == asset_id]
+        return [plan.model_dump(mode="json") for plan in plans]
+
+    async def _tool_execute_workflow(
+        self,
+        workflow_name: str,
+        event: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Execute a registered workflow and return results."""
+        try:
+            result = await self.trigger_workflow(workflow_name, event or {})
+            return {
+                "workflow_name": result.workflow_name,
+                "success": result.success,
+                "duration_ms": result.duration_ms,
+                "steps": [
+                    {
+                        "step": sr.step_name,
+                        "success": sr.success,
+                        "output_summary": str(sr.output)[:500] if sr.output else None,
+                        "error": str(sr.error) if sr.error else None,
+                    }
+                    for sr in result.step_results
+                ],
+            }
+        except Exception as exc:
+            logger.warning(
+                "workflow_execution_failed",
+                agent=self.name,
+                operation="execute_workflow",
+                workflow=workflow_name,
+                error=str(exc),
+            )
+            return {"error": str(exc), "workflow_name": workflow_name}
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _get_available_tools(self) -> list[dict[str, Any]]:
+        """Return the tool definitions relevant to configured connectors."""
+        all_caps: set[Capability] = set()
+        for _, conn in self._registry.all().items():
+            all_caps.update(conn.capabilities)
+
+        cap_to_tool: dict[Capability, list[str]] = {
+            Capability.READ_ASSETS: ["search_assets", "get_asset_details"],
+            Capability.READ_WORK_ORDERS: ["read_work_orders"],
+            Capability.CREATE_WORK_ORDER: ["create_work_order"],
+            Capability.SEARCH_DOCUMENTS: ["search_documents"],
+            Capability.READ_SPARE_PARTS: ["check_spare_parts"],
+            Capability.GET_RELATED_READINGS: ["predict_trend", "detect_anomalies"],
+            Capability.READ_MAINTENANCE_PLANS: ["get_maintenance_schedule"],
+        }
+
+        enabled_tool_names: set[str] = set()
+        for cap in all_caps:
+            for tool_name in cap_to_tool.get(cap, []):
+                enabled_tool_names.add(tool_name)
+
+        # Always include diagnosis when present in the runtime.
+        enabled_tool_names.add("diagnose_failure")
+
+        # Include workflow tool only when workflows are registered
+        if self._workflows:
+            enabled_tool_names.add("execute_workflow")
+
+        if self._allowed_tools is not None:
+            enabled_tool_names &= self._allowed_tools
+
+        return [tool for tool in BUILTIN_TOOLS if tool["function"]["name"] in enabled_tool_names]
+
+    def _ensure_tool_allowed(self, name: str) -> None:
+        if self._allowed_tools is not None and name not in self._allowed_tools:
+            raise PermissionDeniedError(f"Tool '{name}' is not allowed for agent '{self.name}'")
+
+    def _add_to_history(self, chat_id: str, role: str, content: str) -> None:
+        """Add a message to the conversation history."""
+        if chat_id not in self._histories:
+            self._histories[chat_id] = []
+        self._histories[chat_id].append({"role": role, "content": content})
+        # Trim to max length
+        if len(self._histories[chat_id]) > self._max_history * 2:
+            self._histories[chat_id] = self._histories[chat_id][-self._max_history * 2 :]

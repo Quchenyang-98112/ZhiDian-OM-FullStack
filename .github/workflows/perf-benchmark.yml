@@ -1,0 +1,276 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Continuous Performance Benchmarking
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs on pushes to main and manual dispatch. Tracks:
+# - Bundle size budgets via size-limit
+# - Source map analysis via source-map-explorer
+# - Dependency audit via depcheck
+# - Build time tracking
+# - Biome lint (fast supplementary check)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Performance Benchmark
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  npm_config_fund: 'false'
+  npm_config_audit: 'false'
+  npm_config_loglevel: 'error'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Job 1: Build + Bundle Analysis
+  # ─────────────────────────────────────────────────────────────
+  bundle-analysis:
+    name: 📦 Bundle Size & Analysis
+    runs-on: ubuntu-latest
+    outputs:
+      total-js-size: ${{ steps.sizes.outputs.total_js }}
+      total-css-size: ${{ steps.sizes.outputs.total_css }}
+      build-time: ${{ steps.build-time.outputs.duration }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      # ── Build with timing ──
+      - name: Build (timed)
+        id: build-time
+        run: |
+          START=$(date +%s%N)
+          pnpm build
+          END=$(date +%s%N)
+          DURATION=$(( (END - START) / 1000000 ))
+          echo "duration=${DURATION}ms" >> "$GITHUB_OUTPUT"
+          echo "⏱️ Build time: ${DURATION}ms"
+
+      # ── size-limit check ──
+      - name: size-limit
+        id: size-limit
+        run: |
+          npx size-limit --json > /tmp/size-limit.json 2>&1 || true
+          cat /tmp/size-limit.json
+          npx size-limit 2>&1 | tee /tmp/size-limit-report.txt || true
+
+      # ── source-map-explorer ──
+      - name: Source Map Analysis
+        run: |
+          if find apps/web/dist/assets -name '*.map' -print -quit | grep -q .; then
+            npx source-map-explorer apps/web/dist/assets/*.js \
+              --html apps/web/dist/source-map-report.html \
+              --json apps/web/dist/source-map-report.json \
+              2>&1 || echo "source-map-explorer: some files skipped"
+          else
+            echo "source-map-explorer skipped: build emitted no sourcemaps"
+            printf '%s\n' \
+              '{"status":"skipped","reason":"No sourcemaps were emitted by the production build."}' \
+              > apps/web/dist/source-map-report.json
+            {
+              printf '%s\n' '<!doctype html>'
+              printf '%s\n' '<html lang="en">'
+              printf '%s\n' '  <head>'
+              printf '%s\n' '    <meta charset="utf-8" />'
+              printf '%s\n' '    <title>Source Map Analysis Skipped</title>'
+              printf '%s\n' '  </head>'
+              printf '%s\n' '  <body>'
+              printf '%s\n' '    <p>Source map analysis was skipped because the production build did not emit sourcemaps.</p>'
+              printf '%s\n' '  </body>'
+              printf '%s\n' '</html>'
+            } > apps/web/dist/source-map-report.html
+          fi
+
+      # ── Collect raw sizes ──
+      - name: Collect bundle sizes
+        id: sizes
+        run: |
+          mkdir -p .perf/reports
+          JS_SIZE=$(find apps/web/dist/assets -name '*.js' -exec cat {} + | wc -c)
+          CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
+          JS_KB=$(( JS_SIZE / 1024 ))
+          CSS_KB=$(( CSS_SIZE / 1024 ))
+          JS_GZIP=$(find apps/web/dist/assets -name '*.js' -exec cat {} + | gzip -9 | wc -c)
+          CSS_GZIP=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | gzip -9 | wc -c)
+          JS_GZIP_KB=$(( JS_GZIP / 1024 ))
+          CSS_GZIP_KB=$(( CSS_GZIP / 1024 ))
+
+          echo "total_js=${JS_GZIP_KB}kB (gzip)" >> "$GITHUB_OUTPUT"
+          echo "total_css=${CSS_GZIP_KB}kB (gzip)" >> "$GITHUB_OUTPUT"
+
+          echo "## 📦 Bundle Sizes" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Asset | Raw | Gzip |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-----|------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| JS (total) | ${JS_KB} kB | ${JS_GZIP_KB} kB |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CSS (total) | ${CSS_KB} kB | ${CSS_GZIP_KB} kB |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### Per-chunk breakdown:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -lhS apps/web/dist/assets/*.js | awk '{print $5, $NF}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "# Bundle Summary"
+            echo
+            echo "- Build time: ${{ steps.build-time.outputs.duration }}"
+            echo "- JS (gzip): ${JS_GZIP_KB} kB"
+            echo "- CSS (gzip): ${CSS_GZIP_KB} kB"
+            echo
+            echo "## Per-chunk breakdown"
+            ls -lhS apps/web/dist/assets/*.js | awk '{print "- " $5 " " $NF}'
+          } > .perf/reports/bundle-summary.md
+
+      # ── Upload reports ──
+      - name: Upload bundle reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: bundle-reports
+          path: |
+            .perf/reports/bundle-summary.md
+            apps/web/dist/bundle-stats.html
+            apps/web/dist/source-map-report.html
+            apps/web/dist/source-map-report.json
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
+
+  # ─────────────────────────────────────────────────────────────
+  # Job 2: Dependency Health Check
+  # ─────────────────────────────────────────────────────────────
+  dependency-check:
+    name: 🔍 Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: depcheck — unused dependencies
+        run: |
+          echo "## 🔍 Dependency Health" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          npx depcheck --json > /tmp/depcheck.json 2>&1 || true
+
+          UNUSED=$(node -e "
+            const r = require('/tmp/depcheck.json');
+            const deps = r.dependencies || [];
+            const devDeps = r.devDependencies || [];
+            if (deps.length) console.log('Unused deps: ' + deps.join(', '));
+            if (devDeps.length) console.log('Unused devDeps: ' + devDeps.join(', '));
+            if (!deps.length && !devDeps.length) console.log('✅ No unused dependencies');
+          ")
+          echo "$UNUSED"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$UNUSED" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dependency audit summary
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### pnpm audit" >> "$GITHUB_STEP_SUMMARY"
+          pnpm audit --prod 2>&1 | tail -5 >> "$GITHUB_STEP_SUMMARY" || true
+
+  # ─────────────────────────────────────────────────────────────
+  # Job 3: Biome Fast Lint
+  # ─────────────────────────────────────────────────────────────
+  biome-lint:
+    name: ⚡ Biome Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Biome check
+        run: |
+          echo "## ⚡ Biome Lint Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          START=$(date +%s%N)
+          npx biome check apps/ packages/ --reporter=summary 2>&1 | tee /tmp/biome-results.txt || true
+          END=$(date +%s%N)
+          DURATION=$(( (END - START) / 1000000 ))
+          echo "⏱️ Biome lint time: ${DURATION}ms"
+          echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Biome lint time | ${DURATION}ms |" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -20 /tmp/biome-results.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # ─────────────────────────────────────────────────────────────
+  # Job 4: PR Comment with benchmark results
+  # ─────────────────────────────────────────────────────────────
+  report:
+    name: 📊 Benchmark Report
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [bundle-analysis, dependency-check]
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment PR with performance report
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        with:
+          script: |
+            const totalJs = '${{ needs.bundle-analysis.outputs.total-js-size }}';
+            const totalCss = '${{ needs.bundle-analysis.outputs.total-css-size }}';
+            const buildTime = '${{ needs.bundle-analysis.outputs.build-time }}';
+
+            const body = `## ⚡ Performance Benchmark Report
+
+            | Metric | Value | Budget |
+            |--------|-------|--------|
+            | **Total JS** (gzip) | ${totalJs} | ≤ 1050 kB |
+            | **Total CSS** (gzip) | ${totalCss} | ≤ 27 kB |
+            | **Build Time** | ${buildTime} | — |
+
+            <details><summary>📦 size-limit budgets</summary>
+
+            | Chunk | Limit |
+            |-------|-------|
+            | Framework (React+Router) | 75 kB |
+            | App Entry | 85 kB |
+            | Vendor D3 | 30 kB |
+            | Vendor Recharts | 110 kB |
+            | Vendor Motion | 45 kB |
+            | Vendor Icons | 20 kB |
+
+            </details>
+
+            > Full reports available as workflow artifacts.
+            `.replace(/^ {12}/gm, '');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body?.includes('⚡ Performance Benchmark Report'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, body,
+              });
+            }

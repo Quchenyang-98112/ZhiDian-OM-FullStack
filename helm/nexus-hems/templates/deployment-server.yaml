@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nexus-hems.fullname" . }}-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexus-hems.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.replicaCount.server }}
+  revisionHistoryLimit: {{ .Values.deployment.revisionHistoryLimit }}
+  strategy:
+    {{- toYaml .Values.deployment.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "nexus-hems.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        {{- include "nexus-hems.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        {{- toYaml .Values.serverPodSecurityContext | nindent 8 }}
+      containers:
+        - name: server
+          # trivy:ignore:KSV034 Render-time validation in nexus-hems.imageRef rejects repositories outside .Values.image.trustedRegistries.
+          # trivy:ignore:KSV-0125 Same as KSV034 — repository prefix enforced by nexus-hems.assertTrustedImageRepository (see _helpers.tpl).
+          # Image registry is validated at render-time by nexus-hems.assertTrustedImageRepository helper (see _helpers.tpl)
+          image: {{ include "nexus-hems.imageRef" (dict "image" .Values.image.server "trustedRegistries" .Values.image.trustedRegistries "chartAppVersion" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.image.server.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.env.NODE_ENV | quote }}
+            - name: PORT
+              value: {{ .Values.env.PORT | quote }}
+            - name: ADAPTER_MODE
+              value: {{ .Values.env.ADAPTER_MODE | default "mock" | quote }}
+            {{- if .Values.server.redisUrl }}
+            - name: REDIS_URL
+              value: {{ .Values.server.redisUrl | quote }}
+            {{- end }}
+            {{- if .Values.existingSecret }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: JWT_SECRET
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: SENTRY_DSN
+                  optional: true
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources.server | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,13 @@
+# Pre-commit framework hooks (gitleaks, trailing-whitespace, etc.)
+if command -v pre-commit >/dev/null 2>&1; then
+  pre-commit run --config .pre-commit-config.yaml || exit 1
+else
+  # Fallback: run gitleaks directly if pre-commit not installed
+  if command -v gitleaks >/dev/null 2>&1; then
+    gitleaks git --pre-commit --staged --verbose
+  else
+    echo "⚠ Neither pre-commit nor gitleaks installed — skipping secret scan"
+  fi
+fi
+
+npx lint-staged --no-stash --concurrent false

@@ -1,0 +1,223 @@
+name: Lighthouse CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Read-only default; the lighthouse job grants PR-comment scope.
+permissions: read-all
+
+concurrency:
+  group: lighthouse-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  lighthouse:
+    name: lighthouse
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build
+        run: pnpm build
+        env:
+          VITE_E2E_TESTING: 'true'
+
+      - name: Validate PWA
+        id: pwa
+        working-directory: apps/web
+        run: |
+          echo "=== PWA Validation ==="
+          ERRORS=0
+
+          # 1. Manifest exists and is valid JSON
+          if [ ! -f dist/manifest.json ]; then
+            echo "❌ manifest.json not found in dist/"
+            ERRORS=$((ERRORS+1))
+          else
+            echo "✅ manifest.json exists"
+            # Validate required fields
+            node -e "
+              const m = require('./dist/manifest.json');
+              const checks = [
+                [m.name, 'name'],
+                [m.short_name, 'short_name'],
+                [m.start_url, 'start_url'],
+                [m.display, 'display'],
+                [m.background_color, 'background_color'],
+                [m.theme_color, 'theme_color'],
+                [m.icons && m.icons.length >= 2, 'icons (min 2)'],
+              ];
+              let e = 0;
+              checks.forEach(([ok, name]) => {
+                if (ok) console.log('  ✅ ' + name);
+                else { console.log('  ❌ ' + name + ' missing'); e++; }
+              });
+              // Check for 192 + 512 icons
+              const sizes = m.icons.map(i => i.sizes);
+              if (sizes.includes('192x192')) console.log('  ✅ 192x192 icon');
+              else { console.log('  ❌ 192x192 icon missing'); e++; }
+              if (sizes.includes('512x512')) console.log('  ✅ 512x512 icon');
+              else { console.log('  ❌ 512x512 icon missing'); e++; }
+              // Maskable icon
+              const maskable = m.icons.some(i => i.purpose === 'maskable');
+              if (maskable) console.log('  ✅ maskable icon');
+              else { console.log('  ❌ maskable icon missing'); e++; }
+              if (e > 0) process.exit(1);
+            " || ERRORS=$((ERRORS+1))
+          fi
+
+          # 2. Service Worker exists
+          if [ -f dist/sw.js ]; then
+            echo "✅ Service Worker (sw.js) exists"
+          else
+            echo "❌ Service Worker not found"
+            ERRORS=$((ERRORS+1))
+          fi
+
+          # 3. Index has required meta tags
+          if grep -q 'name="theme-color"' dist/index.html; then echo "✅ theme-color meta tag"; else echo "❌ theme-color missing"; ERRORS=$((ERRORS+1)); fi
+          if grep -q 'rel="manifest"' dist/index.html; then echo "✅ manifest link"; else echo "❌ manifest link missing"; ERRORS=$((ERRORS+1)); fi
+          if grep -q 'rel="apple-touch-icon"' dist/index.html; then echo "✅ apple-touch-icon"; else echo "❌ apple-touch-icon missing"; ERRORS=$((ERRORS+1)); fi
+          if grep -q 'name="viewport"' dist/index.html; then echo "✅ viewport meta tag"; else echo "❌ viewport missing"; ERRORS=$((ERRORS+1)); fi
+
+          # 4. Offline-capable: navigateFallback in SW
+          if grep -q 'navigationRoute\|navigateFallback\|NavigationRoute' dist/sw.js; then
+            echo "✅ Offline navigation fallback configured"
+          else
+            echo "⚠️  No explicit navigation fallback in SW (may still work via precache)"
+          fi
+
+          # 5. Icons physically exist
+          for size in 192x192 512x512; do
+            if [ -f "dist/icon-${size}.png" ]; then echo "✅ icon-${size}.png exists"; else echo "❌ icon-${size}.png missing"; ERRORS=$((ERRORS+1)); fi
+          done
+          if [ -f dist/apple-touch-icon.png ]; then echo "✅ apple-touch-icon.png exists"; else echo "❌ apple-touch-icon.png missing"; ERRORS=$((ERRORS+1)); fi
+
+          echo ""
+          if [ $ERRORS -eq 0 ]; then
+            echo "✅ PWA validation passed!"
+            echo "pwa_status=✅ Passed" >> $GITHUB_OUTPUT
+          else
+            echo "❌ PWA validation failed with $ERRORS error(s)"
+            echo "pwa_status=❌ Failed ($ERRORS errors)" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # v12
+        with:
+          configPath: './apps/web/lighthouserc.json'
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stage Lighthouse Report Artifacts
+        run: |
+          mkdir -p .perf/reports/lighthouse-ci
+          if [ -d .lighthouseci ]; then
+            cp -R .lighthouseci/. .perf/reports/lighthouse-ci/
+          fi
+          {
+            echo "# Lighthouse CI Artifacts"
+            echo
+            echo "This directory mirrors the CI-generated Lighthouse artifacts from \
+            \\`.lighthouseci/\\` for the checked-in performance artifact convention."
+          } > .perf/reports/lighthouse-ci/README.md
+
+      - name: Upload Lighthouse Report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: lighthouse-report
+          path: |
+            .lighthouseci/
+            .perf/reports/lighthouse-ci/
+          retention-days: 14
+
+      - name: Comment PR with Lighthouse scores
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const dir = '.lighthouseci';
+            if (!fs.existsSync(dir)) return;
+
+            const files = fs.readdirSync(dir).filter(f => f.endsWith('.json') && f.startsWith('lhr-'));
+            if (files.length === 0) return;
+
+            const results = files.map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')));
+            const avg = (cat) => {
+              const scores = results.map(r => r.categories[cat]?.score ?? 0);
+              return Math.round((scores.reduce((a,b) => a+b, 0) / scores.length) * 100);
+            };
+
+            const perf = avg('performance');
+            const a11y = avg('accessibility');
+            const bp = avg('best-practices');
+            const seo = avg('seo');
+
+            const emoji = (s, t) => s >= t ? '✅' : '❌';
+
+            const body = `## 🔦 Lighthouse CI Report
+
+            | Category | Score | Threshold | Status |
+            |----------|-------|-----------|--------|
+            | Performance | **${perf}%** | ≥ 85% | ${emoji(perf, 85)} |
+            | Accessibility | **${a11y}%** | ≥ 90% | ${emoji(a11y, 90)} |
+            | Best Practices | **${bp}%** | ≥ 90% | ${emoji(bp, 90)} |
+            | SEO | **${seo}%** | ≥ 85% | ${emoji(seo, 85)} |
+            | PWA | **${{ steps.pwa.outputs.pwa_status || '⚠️ Skipped' }}** | Manifest + SW + Icons | ${{ steps.pwa.outputs.pwa_status && '✅' || '⚠️' }} |
+
+            <details><summary>Budget Limits</summary>
+
+            - FCP ≤ 1800ms, LCP ≤ 2500ms, TBT ≤ 200ms, TTI ≤ 3500ms
+            - JS ≤ 350KB, CSS ≤ 100KB, Total ≤ 1MB
+            - Max 25 scripts, max 10 third-party resources
+
+            </details>
+
+            > Reports uploaded to [temporary public storage](https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/).
+            `.replace(/^ {12}/gm, '');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body?.includes('🔦 Lighthouse CI Report'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if scores below thresholds
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "Lighthouse assertions are enforced via lighthouserc.json assert config."
+          echo "If the 'Run Lighthouse CI' step passed, all thresholds are met."

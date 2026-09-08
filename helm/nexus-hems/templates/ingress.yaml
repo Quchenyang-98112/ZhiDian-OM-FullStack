@@ -1,0 +1,41 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "nexus-hems.fullname" . }}
+  labels:
+    {{- include "nexus-hems.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "nexus-hems.fullname" . }}-server
+                port:
+                  number: {{ .Values.service.server.port }}
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "nexus-hems.fullname" . }}-server
+                port:
+                  number: {{ .Values.service.server.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "nexus-hems.fullname" . }}-frontend
+                port:
+                  number: {{ .Values.service.frontend.port }}
+{{- end }}

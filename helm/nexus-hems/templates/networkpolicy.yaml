@@ -1,0 +1,54 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "nexus-hems.fullname" . }}
+  labels:
+    {{- include "nexus-hems.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "nexus-hems.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress controller
+    - from: []
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 3000
+          protocol: TCP
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 3000
+          protocol: TCP
+  egress:
+    # Allow DNS
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow HTTPS (tariff APIs, AI APIs, etc.)
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
+    # Allow internal communication
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "nexus-hems.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 3000
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
+{{- end }}

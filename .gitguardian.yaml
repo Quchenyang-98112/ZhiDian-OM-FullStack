@@ -1,0 +1,17 @@
+# GitGuardian / ggshield — repository-local secret scan config
+# Docs: https://docs.gitguardian.com/ggshield-docs/configuration
+version: 2
+
+secret:
+  ignored_paths:
+    - 'apps/web/src/tests/**'
+    - 'apps/api/src/tests/**'
+    - '**/*.test.ts'
+    - '**/*.test.tsx'
+    - '**/*.spec.ts'
+    - '**/*.spec.tsx'
+  ignored_matches:
+    - name: HA hydration unit-test fixture
+      match: fixture-ha-auth-9f3a
+    - name: MQTT hydration unit-test fixture
+      match: fixture-mqtt-auth-7c2b

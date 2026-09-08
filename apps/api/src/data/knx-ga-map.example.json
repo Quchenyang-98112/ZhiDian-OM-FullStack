@@ -1,0 +1,25 @@
+[
+  {
+    "deviceId": "knx-living-room",
+    "ga": "3/1/0",
+    "metric": "TEMPERATURE_C",
+    "scale": 1,
+    "role": "heatpump",
+    "label": "Living room temperature (DPT9)"
+  },
+  {
+    "deviceId": "knx-living-room",
+    "ga": "3/1/2",
+    "metric": "CO2_PPM",
+    "scale": 1,
+    "label": "Living room CO₂ (DPT9)"
+  },
+  {
+    "deviceId": "knx-meter-main",
+    "ga": "6/0/1",
+    "metric": "POWER_W",
+    "scale": 1,
+    "role": "load",
+    "label": "Main meter active power (DPT14)"
+  }
+]

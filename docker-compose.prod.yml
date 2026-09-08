@@ -1,0 +1,280 @@
+# docker-compose.prod.yml — Nexus-HEMS Dashboard production stack
+#
+# Usage:
+#   cp .env.prod.example .env.prod
+#   # Edit .env.prod with real values
+#   docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Services:
+#   nginx       — Static SPA + reverse proxy (port 80/443)
+#   api         — Express 5 backend
+#   influxdb    — Time-series database
+#   prometheus  — Metrics scraping
+#   grafana     — Visualization dashboards
+#
+# Security:
+#   - All containers run as non-root
+#   - read_only root filesystems where possible (tmpfs for writable paths)
+#   - no-new-privileges security option on all services
+#   - inter-service traffic on isolated backend network only
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # nginx — serves the React SPA and proxies /api + /ws to the Express backend
+  # ─────────────────────────────────────────────────────────────────────────────
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    ports:
+      - "80:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      WS_ORIGINS: ${WS_ORIGINS:-wss://localhost}
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /run
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - frontend
+      - backend
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # api — Express 5 backend (JWT-gated REST + WebSocket)
+  # ─────────────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      target: production
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: ${PORT:-3000}
+      JWT_SECRET: ${JWT_SECRET}
+      API_KEYS: ${API_KEYS}
+      API_KEY_SCOPES: ${API_KEY_SCOPES}
+      WS_ORIGINS: ${WS_ORIGINS}
+      ADAPTER_MODE: ${ADAPTER_MODE:-mock}
+      INFLUXDB_URL: ${INFLUXDB_URL}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUXDB_ORG: ${INFLUXDB_ORG}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+      AWATTAR_BASE_URL: ${AWATTAR_BASE_URL:-https://api.awattar.de/v1}
+      MQTT_BROKER_URL: ${MQTT_BROKER_URL:-}
+      RATE_LIMIT_TRUSTED_IPS: ${RATE_LIMIT_TRUSTED_IPS:-}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    volumes:
+      - api_data:/app/apps/api/data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - backend
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # redis — HA session state (WS tickets, dashboard shares, JTI revocation)
+  # Optional for single-replica; recommended for multi-instance API deployments.
+  # ─────────────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - backend
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # influxdb — Time-series persistence (365-day retention policy set via UI)
+  # ─────────────────────────────────────────────────────────────────────────────
+  influxdb:
+    image: influxdb:2.7
+    restart: unless-stopped
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_ADMIN_USER:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-nexus-hems}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-energy-metrics}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    networks:
+      - backend
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # prometheus — Metrics scraping
+  # ─────────────────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # grafana — Visualization dashboards
+  # ─────────────────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD:-changeme}
+      GF_SERVER_ROOT_URL: /grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Networks
+# ─────────────────────────────────────────────────────────────────────────────
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Volumes
+# ─────────────────────────────────────────────────────────────────────────────
+volumes:
+  api_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-/opt/nexus-hems/data}/api
+  influxdb_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-/opt/nexus-hems/data}/influxdb
+  influxdb_config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-/opt/nexus-hems/data}/influxdb-config
+  prometheus_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-/opt/nexus-hems/data}/prometheus
+  grafana_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-/opt/nexus-hems/data}/grafana

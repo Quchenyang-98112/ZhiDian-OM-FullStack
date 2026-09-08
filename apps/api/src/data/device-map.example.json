@@ -1,0 +1,889 @@
+[
+  {
+    "deviceId": "sma-sunnyboy-01",
+    "label": "SMA Sunny Boy 5.0 — PV Inverter",
+    "host": "192.168.1.100",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 2000,
+    "inverterMaxWatts": 5000,
+    "registers": [
+      {
+        "address": 40083,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "AC Power Output (SunSpec 103)"
+      },
+      {
+        "address": 40093,
+        "metric": "ENERGY_KWH",
+        "scale": 0.001,
+        "unit": "kWh",
+        "dataType": "UINT32",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "AC Energy Total (SunSpec 103)"
+      },
+      {
+        "address": 40085,
+        "metric": "VOLTAGE_V",
+        "scale": 0.1,
+        "unit": "V",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "AC Voltage Phase A (SunSpec 103)"
+      },
+      {
+        "address": 40086,
+        "metric": "CURRENT_A",
+        "scale": 0.01,
+        "unit": "A",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "label": "AC Current Phase A (SunSpec 103)"
+      }
+    ]
+  },
+  {
+    "deviceId": "victron-multiplus-01",
+    "label": "Victron MultiPlus-II 5000 — Battery Inverter",
+    "host": "192.168.1.101",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 100,
+    "pollIntervalMs": 2000,
+    "inverterMaxWatts": 5000,
+    "registers": [
+      {
+        "address": 840,
+        "metric": "SOC_PERCENT",
+        "scale": 0.1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery State of Charge (Victron GX Modbus)"
+      },
+      {
+        "address": 842,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery Power (positive=charge, negative=discharge)"
+      },
+      {
+        "address": 843,
+        "metric": "VOLTAGE_V",
+        "scale": 0.01,
+        "unit": "V",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "Battery Voltage"
+      }
+    ]
+  },
+  {
+    "deviceId": "byd-hvs-battery-01",
+    "label": "BYD HVS 10.2 — Battery Storage",
+    "host": "192.168.1.102",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 5000,
+    "inverterMaxWatts": 5000,
+    "registers": [
+      {
+        "address": 6000,
+        "metric": "SOC_PERCENT",
+        "scale": 0.1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "State of Charge"
+      },
+      {
+        "address": 6001,
+        "metric": "TEMPERATURE_C",
+        "scale": 0.1,
+        "unit": "°C",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "label": "Battery Temperature"
+      }
+    ]
+  },
+  {
+    "_comment": "═══════════════════════════════════════════════════════════════════",
+    "_comment2": "HYBRID INVERTERS — Deye, Growatt, Luxpower, Huawei, Sungrow, Sofar",
+    "_comment3": "═══════════════════════════════════════════════════════════════════",
+    "deviceId": "deye-sun6k-sg04lp3-01",
+    "label": "Deye SUN-6K-SG04LP3-EU — Hybrid Inverter (3-phase, Low Voltage Battery)",
+    "host": "192.168.1.110",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 2000,
+    "inverterMaxWatts": 6000,
+    "registers": [
+      {
+        "address": 672,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV1 Power"
+      },
+      {
+        "address": 673,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV2 Power"
+      },
+      {
+        "address": 103,
+        "metric": "SOC_PERCENT",
+        "scale": 1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery SoC"
+      },
+      {
+        "address": 190,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery Power (positive=charge)"
+      },
+      {
+        "address": 625,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "grid",
+        "label": "Grid Import/Export (positive=import)"
+      },
+      {
+        "address": 653,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "load",
+        "label": "House Load / Consumption"
+      }
+    ]
+  },
+  {
+    "deviceId": "growatt-sph-6000-01",
+    "label": "Growatt SPH 6000 — Hybrid Inverter (AC/DC coupling, min. 2 kWh battery)",
+    "host": "192.168.1.111",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 2000,
+    "inverterMaxWatts": 6000,
+    "registers": [
+      {
+        "address": 35,
+        "metric": "POWER_W",
+        "scale": 0.1,
+        "unit": "W",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV Output Power (holding reg 35)"
+      },
+      {
+        "address": 36,
+        "metric": "POWER_W",
+        "scale": 0.1,
+        "unit": "W",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV Input Power total (holding reg 36)"
+      },
+      {
+        "address": 1013,
+        "metric": "SOC_PERCENT",
+        "scale": 1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery SoC %"
+      },
+      {
+        "address": 1014,
+        "metric": "VOLTAGE_V",
+        "scale": 0.1,
+        "unit": "V",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "Battery Voltage"
+      },
+      {
+        "address": 1168,
+        "metric": "POWER_W",
+        "scale": 0.1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery Charge/Discharge Power (positive=charge)"
+      },
+      {
+        "address": 37,
+        "metric": "POWER_W",
+        "scale": 0.1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "grid",
+        "label": "Grid Import/Export (positive=import)"
+      }
+    ]
+  },
+  {
+    "deviceId": "luxpower-sna5000-01",
+    "label": "Luxpower SNA 5000 — Hybrid Inverter (LV battery, EU split-phase)",
+    "host": "192.168.1.112",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 3000,
+    "inverterMaxWatts": 5000,
+    "registers": [
+      {
+        "address": 40,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV1 Input Power"
+      },
+      {
+        "address": 41,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV2 Input Power"
+      },
+      {
+        "address": 162,
+        "metric": "SOC_PERCENT",
+        "scale": 1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery SoC"
+      },
+      {
+        "address": 163,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery Power (positive=charge)"
+      },
+      {
+        "address": 168,
+        "metric": "TEMPERATURE_C",
+        "scale": 0.1,
+        "unit": "°C",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "label": "Battery Temperature"
+      },
+      {
+        "address": 79,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "grid",
+        "label": "Grid Power (positive=import, negative=export)"
+      }
+    ]
+  },
+  {
+    "deviceId": "huawei-sun2000-6ktl-01",
+    "label": "Huawei SUN2000-6KTL-M1 — String Inverter + Luna2000 Battery",
+    "host": "192.168.1.113",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 3000,
+    "inverterMaxWatts": 6000,
+    "registers": [
+      {
+        "address": 32075,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT32",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV Input Power Total"
+      },
+      {
+        "address": 32064,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT32",
+        "byteOrder": "BE",
+        "label": "AC Active Power Output"
+      },
+      {
+        "address": 37113,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT32",
+        "byteOrder": "BE",
+        "role": "grid",
+        "label": "Grid Power (positive=export, negative=import)"
+      },
+      {
+        "address": 37004,
+        "metric": "SOC_PERCENT",
+        "scale": 0.1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Luna2000 Battery SoC"
+      },
+      {
+        "address": 37001,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT32",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Luna2000 Charge/Discharge Power"
+      }
+    ]
+  },
+  {
+    "deviceId": "sungrow-sh6rs-01",
+    "label": "Sungrow SH6.0RS — Residential Hybrid (3-phase, 5 kWh SBR battery)",
+    "host": "192.168.1.114",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 3000,
+    "inverterMaxWatts": 6000,
+    "registers": [
+      {
+        "address": 5003,
+        "metric": "VOLTAGE_V",
+        "scale": 0.1,
+        "unit": "V",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "PV1 Voltage"
+      },
+      {
+        "address": 5004,
+        "metric": "CURRENT_A",
+        "scale": 0.1,
+        "unit": "A",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "PV1 Current"
+      },
+      {
+        "address": 5008,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "UINT32",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV Total Input Power"
+      },
+      {
+        "address": 13022,
+        "metric": "SOC_PERCENT",
+        "scale": 0.1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery SoC"
+      },
+      {
+        "address": 13021,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT32",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery Charge/Discharge Power (positive=charge)"
+      },
+      {
+        "address": 5083,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT32",
+        "byteOrder": "BE",
+        "role": "grid",
+        "label": "Grid Active Power (negative=export, positive=import)"
+      },
+      {
+        "address": 5090,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "UINT32",
+        "byteOrder": "BE",
+        "role": "load",
+        "label": "Load Power"
+      }
+    ]
+  },
+  {
+    "deviceId": "fronius-symo-gen24-plus-6kw-01",
+    "label": "Fronius Symo GEN24 Plus 6.0 — Hybrid Inverter (SunSpec 160 MPPT)",
+    "host": "192.168.1.115",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 3000,
+    "inverterMaxWatts": 6000,
+    "registers": [
+      {
+        "address": 40083,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "AC Active Power (SunSpec 103)"
+      },
+      {
+        "address": 40265,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "MPPT1 DC Power (SunSpec 160)"
+      },
+      {
+        "address": 40295,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "MPPT2 DC Power (SunSpec 160)"
+      },
+      {
+        "address": 40361,
+        "metric": "SOC_PERCENT",
+        "scale": 1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery SoC (Fronius register map)"
+      }
+    ]
+  },
+  {
+    "_comment": "════════════════════════════════════════",
+    "_comment2": "MPPT CHARGE CONTROLLERS",
+    "_comment3": "════════════════════════════════════════",
+    "deviceId": "epever-xtra-4415n-01",
+    "label": "EPever XTRA 4415N — 40A 12/24/48V MPPT Charge Controller",
+    "host": "192.168.1.120",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 5000,
+    "inverterMaxWatts": 2100,
+    "registers": [
+      {
+        "address": 12544,
+        "metric": "VOLTAGE_V",
+        "scale": 0.01,
+        "unit": "V",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "PV Array Voltage (0x3100)"
+      },
+      {
+        "address": 12545,
+        "metric": "CURRENT_A",
+        "scale": 0.01,
+        "unit": "A",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "PV Array Current (0x3101)"
+      },
+      {
+        "address": 12548,
+        "metric": "POWER_W",
+        "scale": 0.01,
+        "unit": "W",
+        "dataType": "UINT32",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV Charging Power (0x3102-3103 combined)"
+      },
+      {
+        "address": 12556,
+        "metric": "SOC_PERCENT",
+        "scale": 1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery SoC (0x311A)"
+      },
+      {
+        "address": 12552,
+        "metric": "VOLTAGE_V",
+        "scale": 0.01,
+        "unit": "V",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "Battery Voltage (0x3110)"
+      },
+      {
+        "address": 12553,
+        "metric": "CURRENT_A",
+        "scale": 0.01,
+        "unit": "A",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "Battery Charging Current (0x3111)"
+      }
+    ]
+  },
+  {
+    "deviceId": "renogy-rover-elite-40a-01",
+    "label": "Renogy Rover Elite 40A — MPPT Charge Controller",
+    "host": "192.168.1.121",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 5000,
+    "inverterMaxWatts": 2000,
+    "registers": [
+      {
+        "address": 256,
+        "metric": "SOC_PERCENT",
+        "scale": 1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery Capacity SoC (0x100)"
+      },
+      {
+        "address": 257,
+        "metric": "VOLTAGE_V",
+        "scale": 0.1,
+        "unit": "V",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "Battery Voltage (0x101)"
+      },
+      {
+        "address": 263,
+        "metric": "VOLTAGE_V",
+        "scale": 0.1,
+        "unit": "V",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "PV Array Voltage (0x107)"
+      },
+      {
+        "address": 264,
+        "metric": "CURRENT_A",
+        "scale": 0.01,
+        "unit": "A",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "PV Array Current (0x108)"
+      }
+    ]
+  },
+  {
+    "_comment": "═══════════════════════════════════",
+    "_comment2": "BATTERY STORAGE SYSTEMS",
+    "_comment3": "═══════════════════════════════════",
+    "deviceId": "pylontech-us3000c-01",
+    "label": "PYLONTECH US3000C — 3.5 kWh LiFePO4 Battery Module",
+    "host": "192.168.1.130",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 5000,
+    "inverterMaxWatts": 3500,
+    "registers": [
+      {
+        "address": 0,
+        "metric": "SOC_PERCENT",
+        "scale": 1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "State of Charge"
+      },
+      {
+        "address": 2,
+        "metric": "VOLTAGE_V",
+        "scale": 0.001,
+        "unit": "V",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "label": "Battery Voltage"
+      },
+      {
+        "address": 3,
+        "metric": "CURRENT_A",
+        "scale": 0.001,
+        "unit": "A",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "label": "Battery Current (positive=charge)"
+      },
+      {
+        "address": 5,
+        "metric": "TEMPERATURE_C",
+        "scale": 0.1,
+        "unit": "°C",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "label": "Cell Temperature"
+      }
+    ]
+  },
+  {
+    "deviceId": "alpha-ess-smile5-01",
+    "label": "Alpha ESS SMILE5 — 5 kW Hybrid + SMILE-B3 Battery",
+    "host": "192.168.1.131",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 85,
+    "pollIntervalMs": 3000,
+    "inverterMaxWatts": 5000,
+    "registers": [
+      {
+        "address": 256,
+        "metric": "SOC_PERCENT",
+        "scale": 0.1,
+        "unit": "%",
+        "dataType": "UINT16",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery SoC (0x0100)"
+      },
+      {
+        "address": 258,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT32",
+        "byteOrder": "BE",
+        "role": "battery",
+        "label": "Battery Power (positive=charge)"
+      },
+      {
+        "address": 521,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT32",
+        "byteOrder": "BE",
+        "role": "pv",
+        "label": "PV Power Total"
+      },
+      {
+        "address": 528,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT32",
+        "byteOrder": "BE",
+        "role": "grid",
+        "label": "Grid Power (positive=import)"
+      }
+    ]
+  },
+  {
+    "_comment": "══════════════════════════════════════════════════",
+    "_comment2": "GRID METERS (Smart Meters / Bidirectional Energy Meters)",
+    "_comment3": "══════════════════════════════════════════════════",
+    "deviceId": "eastron-sdm630-01",
+    "label": "Eastron SDM630 — 3-Phase Bidirectional Energy Meter",
+    "host": "192.168.1.140",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 2000,
+    "inverterMaxWatts": 100000,
+    "registers": [
+      {
+        "address": 0,
+        "metric": "VOLTAGE_V",
+        "scale": 1,
+        "unit": "V",
+        "dataType": "FLOAT32",
+        "byteOrder": "BE",
+        "label": "Phase 1 Voltage (0x0000)"
+      },
+      {
+        "address": 12,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "FLOAT32",
+        "byteOrder": "BE",
+        "label": "Phase 1 Power (0x000C)"
+      },
+      {
+        "address": 52,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "FLOAT32",
+        "byteOrder": "BE",
+        "role": "grid",
+        "label": "Total System Power (positive=import, 0x0034)"
+      },
+      {
+        "address": 72,
+        "metric": "FREQUENCY_HZ",
+        "scale": 1,
+        "unit": "Hz",
+        "dataType": "FLOAT32",
+        "byteOrder": "BE",
+        "label": "Grid Frequency (0x0046)"
+      },
+      {
+        "address": 342,
+        "metric": "ENERGY_KWH",
+        "scale": 1,
+        "unit": "kWh",
+        "dataType": "FLOAT32",
+        "byteOrder": "BE",
+        "label": "Total Import kWh (0x0156)"
+      },
+      {
+        "address": 344,
+        "metric": "ENERGY_KWH",
+        "scale": 1,
+        "unit": "kWh",
+        "dataType": "FLOAT32",
+        "byteOrder": "BE",
+        "label": "Total Export kWh (0x0158)"
+      }
+    ]
+  },
+  {
+    "_comment": "══════════════════════════════════════════════════════",
+    "_comment2": "HEAT PUMP / HVAC via Modbus TCP (ISG/Internet Service Gateway)",
+    "_comment3": "══════════════════════════════════════════════════════",
+    "deviceId": "stiebel-eltron-wpl13-01",
+    "label": "Stiebel Eltron WPL 13 E — Air/Water Heat Pump (via ISG web Modbus TCP)",
+    "host": "192.168.1.150",
+    "port": 502,
+    "protocol": "modbus-sunspec",
+    "unitId": 1,
+    "pollIntervalMs": 5000,
+    "inverterMaxWatts": 4000,
+    "registers": [
+      {
+        "address": 1000,
+        "metric": "TEMPERATURE_C",
+        "scale": 0.1,
+        "unit": "°C",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "label": "Outdoor Temperature"
+      },
+      {
+        "address": 1001,
+        "metric": "TEMPERATURE_C",
+        "scale": 0.1,
+        "unit": "°C",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "label": "Flow Temperature"
+      },
+      {
+        "address": 1004,
+        "metric": "TEMPERATURE_C",
+        "scale": 0.1,
+        "unit": "°C",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "label": "Return Temperature"
+      },
+      {
+        "address": 3000,
+        "metric": "POWER_W",
+        "scale": 1,
+        "unit": "W",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "role": "heatpump",
+        "label": "Compressor Power Consumption (estimated)"
+      },
+      {
+        "address": 3503,
+        "metric": "ENERGY_KWH",
+        "scale": 1,
+        "unit": "kWh",
+        "dataType": "INT16",
+        "byteOrder": "BE",
+        "label": "Total Electrical Energy (heating)"
+      }
+    ]
+  }
+]

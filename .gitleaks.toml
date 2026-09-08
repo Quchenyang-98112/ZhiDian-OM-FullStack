@@ -1,0 +1,147 @@
+# Gitleaks configuration for Nexus HEMS Dashboard
+# https://github.com/gitleaks/gitleaks
+
+title = "Nexus HEMS Dash — Gitleaks Config"
+
+[extend]
+# Use the default gitleaks rules as base
+useDefault = true
+
+# ─── Allowlist (project-specific false positives) ───────────────
+[allowlist]
+description = "Global allowlist"
+
+paths = [
+  '''node_modules/''',
+  '''dist/''',
+  '''coverage/''',
+  '''playwright-report/''',
+  '''test-results/''',
+  '''\.husky/''',
+  '''package-lock\.json''',
+  '''\.png$''',
+  '''\.jpg$''',
+  '''\.svg$''',
+  '''\.ico$''',
+  '''\.woff2?$''',
+  '''src/tests/''',
+  '''\.env\.example$''',
+]
+
+# Known false positives (placeholder text, i18n keys, config keys)
+regexes = [
+  '''placeholder="-----BEGIN''',
+  '''placeholder=.*PRIVATE KEY''',
+  '''BEGIN PRIVATE KEY-----"''',
+  '''c14a_reduced''',
+  '''featureSankeyDesc''',
+  '''your_tibber_api_token''',
+  '''your_awattar_api_key''',
+  '''VITE_TIBBER_API_TOKEN=\s*$''',
+  '''VITE_AWATTAR_COUNTRY=DE''',
+  '''llama-3\.3-70b''',
+  '''idToken:\s*this\.''',
+  '''D3\.js-basierte''',
+  '''TIBBER_API_TOKEN=your_''',
+  '''AWATTAR_API_KEY=your_''',
+  '''API_TOKEN=\s*\n''',
+  '''iso15118Enabled''',
+  '''Grype/cosign''',
+  '''Grype''',
+  '''resolveMqttBrokerAuth''',
+  '''mqttBrokerAuth''',
+  '''FIXTURE_.*_AUTH''',
+]
+
+# Fingerprints of verified false positives (placeholder PEM in form inputs)
+commits = [
+  "2ed45d939b4f1683cba16115df27ebb48fa6def0",
+]
+
+# ─── Custom rules for HEMS-specific patterns ───────────────────
+
+[[rules]]
+id = "tibber-api-token"
+description = "Tibber API Token (real token, not placeholder)"
+regex = '''(?i)tibber[_\-]?(api[_\-]?)?(token|key|secret)\s*[:=]\s*['"]?[a-zA-Z0-9\-_]{24,}['"]?'''
+entropy = 3.5
+tags = ["api", "tibber", "energy"]
+[rules.allowlist]
+regexes = ['''your_''', '''placeholder''', '''example''', '''=\s*$''', '''=\s*\n''']
+
+[[rules]]
+id = "awattar-api-key"
+description = "aWATTar API Key (real key, not placeholder)"
+regex = '''(?i)awattar[_\-]?(api[_\-]?)?(token|key|secret)\s*[:=]\s*['"]?[a-zA-Z0-9\-_]{24,}['"]?'''
+entropy = 3.5
+tags = ["api", "awattar", "energy"]
+[rules.allowlist]
+regexes = ['''your_''', '''placeholder''', '''example''']
+
+[[rules]]
+id = "mqtt-credentials"
+description = "MQTT Broker Credentials"
+regex = '''(?i)mqtt[_\-]?(password|pass|secret|token)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?'''
+tags = ["mqtt", "victron", "iot"]
+[rules.allowlist]
+regexes = ['''your_''', '''your-''', '''placeholder''', '''example''']
+
+[[rules]]
+id = "ocpp-auth-key"
+description = "OCPP Authorization Key"
+regex = '''(?i)ocpp[_\-]?(auth[_\-]?)?(key|token|password|secret)\s*[:=]\s*['"]?[a-zA-Z0-9\-_]{16,}['"]?'''
+tags = ["ocpp", "ev-charging"]
+
+[[rules]]
+id = "knx-password"
+description = "KNX Gateway Password"
+regex = '''(?i)knx[_\-]?(password|pass|secret|token)\s*[:=]\s*['"]?[^\s'"]{6,}['"]?'''
+tags = ["knx", "smart-home"]
+
+[[rules]]
+id = "eebus-certificate-key"
+description = "EEBUS Private Key or Certificate"
+regex = '''-----BEGIN (RSA |EC )?PRIVATE KEY-----'''
+tags = ["eebus", "tls", "certificate"]
+[rules.allowlist]
+regexes = ['''placeholder=''']
+
+[[rules]]
+id = "gemini-api-key"
+description = "Google Gemini API Key"
+regex = '''(?i)(gemini|google)[_\-]?(api[_\-]?)?(key|token|secret)\s*[:=]\s*['"]?AIza[a-zA-Z0-9\-_]{35,}['"]?'''
+tags = ["api", "ai", "gemini"]
+
+[[rules]]
+id = "openai-api-key"
+description = "OpenAI API Key"
+regex = '''sk-[a-zA-Z0-9]{20,}'''
+tags = ["api", "ai", "openai"]
+
+[[rules]]
+id = "anthropic-api-key"
+description = "Anthropic API Key"
+regex = '''sk-ant-[a-zA-Z0-9\-_]{20,}'''
+tags = ["api", "ai", "anthropic"]
+
+[[rules]]
+id = "groq-api-key"
+description = "Groq API Key"
+regex = '''gsk_[a-zA-Z0-9]{20,}'''
+tags = ["api", "ai", "groq"]
+
+[[rules]]
+id = "xai-api-key"
+description = "xAI API Key"
+regex = '''xai-[a-zA-Z0-9]{20,}'''
+tags = ["api", "ai", "xai"]
+
+# ─── Allowlist rules for test/demo data ─────────────────────────
+
+[[rules]]
+id = "demo-data-allowlist"
+description = "Allow demo/test placeholder values"
+regex = '''(?i)(demo|test|example|placeholder|dummy)[_\-]?(api[_\-]?)?(key|token|secret)\s*[:=]\s*['"]?(demo|test|example|placeholder|dummy|xxx|your)[^\s'"]*['"]?'''
+[rules.allowlist]
+regexTarget = "match"
+regexes = ['''.*''']

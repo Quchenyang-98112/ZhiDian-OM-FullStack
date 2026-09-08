@@ -1,0 +1,39 @@
+{
+  "$comment": [
+    "CodeAnt AI analysis configuration for Nexus-HEMS-Dash.",
+    "Docs: https://docs.codeant.ai/scan_center/analysis_configuration",
+    "Role: AI CONTEXTUAL review layer (advisory). See DEVOPS.md + docs/runbooks/codeant-ai-integration.md.",
+    "De-duplication: analyzers already owned deterministically by the existing stack are DISABLED here so CodeAnt adds signal instead of noise:",
+    "  - secrets  -> owned by Gitleaks (blocking) + DeepSource secrets analyzer",
+    "  - sca      -> owned by pnpm audit + Grype/Trivy + Renovate",
+    "  - iac      -> owned by Trivy (Helm) + DeepSource docker analyzer",
+    "  - docstring-> owned by DeepSource doc-coverage (with skip_doc_coverage tuning)",
+    "CodeAnt KEEPS: sast (AI SAST complements CodeQL/Semgrep), deadcode, duplicatecode, antipatterns (architecture), complex_function.",
+    "Precedence: inline CI params > this repo config > dashboard UI settings."
+  ],
+  "code_analysis": {
+    "enabled": true,
+    "features": {
+      "sast_analysis": "enabled",
+      "secrets_analysis": "disabled",
+      "sca_analysis": "disabled",
+      "iac_analysis": "disabled",
+      "deadcode_analysis": "enabled",
+      "duplicatecode_analysis": "enabled",
+      "antipatterns_analysis": "enabled",
+      "docstring_analysis": "disabled",
+      "complex_function_analysis": "enabled"
+    },
+    "config": {
+      "complexity": {
+        "maintainability_index": 15
+      }
+    }
+  },
+  "file_filters": {
+    "config": {
+      "include_files": "",
+      "exclude_files": "node_modules/**,dist/**,build/**,.turbo/**,**/*.d.ts,**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,coverage/**,**/coverage/**,apps/web/storybook-static/**,apps/web/src-tauri/target/**,apps/web/public/**,docs/**,scripts/**,pnpm-lock.yaml"
+    }
+  }
+}

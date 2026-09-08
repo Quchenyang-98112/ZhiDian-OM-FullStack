@@ -1,0 +1,80 @@
+# Codecov configuration for Nexus-HEMS-Dash
+# https://docs.codecov.com/docs/codecovyml-reference
+#
+# Rollout mode: ADVISORY-FIRST.
+#   Codecov posts a PR comment + GitHub Checks annotations, but its status
+#   contexts are `informational: true` (non-blocking). The blocking coverage
+#   gate remains `scripts/check-coverage-baseline.mjs` (PRF-03) in ci.yml,
+#   which enforces the floor in `apps/web/coverage-baseline.json`.
+#
+# Monorepo layout: two flags (web, api) with carryforward so a PR that only
+#   touches one package does not drop the other's coverage to zero.
+#
+# Docs: docs/runbooks/working-with-coverage.md · DEVOPS.md
+
+codecov:
+  require_ci_to_pass: true
+  notify:
+    # Wait for the whole CI matrix before computing the merged report.
+    wait_for_ci: true
+
+coverage:
+  precision: 2
+  round: down
+  range: '70...100'
+  status:
+    project:
+      default:
+        # Advisory-first: report the delta, never block the merge.
+        informational: true
+        target: auto
+        threshold: 1%
+        flags:
+          - web
+          - api
+    patch:
+      default:
+        informational: true
+        target: auto
+        threshold: 5%
+
+# Carryforward flags for the pnpm/Turborepo monorepo. Each package uploads
+# its own lcov with the matching flag from ci.yml.
+flags:
+  web:
+    paths:
+      - apps/web/
+    carryforward: true
+  api:
+    paths:
+      - apps/api/
+    carryforward: true
+
+parsers:
+  javascript:
+    enable_partials: true
+
+comment:
+  layout: 'header, diff, flags, components, files'
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+
+# Mirror the vitest coverage excludes so non-source files never skew the report.
+ignore:
+  - 'node_modules/**'
+  - '**/*.test.*'
+  - '**/*.spec.*'
+  - '**/*.d.ts'
+  - '**/tests/**'
+  - '**/src/tests/**'
+  - 'coverage/**'
+  - '**/coverage/**'
+  - 'dist/**'
+  - '**/dist/**'
+  - 'apps/web/storybook-static/**'
+  - 'apps/web/src-tauri/**'
+  - 'apps/web/public/**'
+  - 'scripts/**'
+  - 'docs/**'

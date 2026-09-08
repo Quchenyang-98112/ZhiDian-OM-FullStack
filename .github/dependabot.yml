@@ -1,0 +1,27 @@
+# Dependabot — GitHub Actions updates ONLY.
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+#
+# Reconciliation (ADR-027): Renovate (`.renovaterc.json` + `.github/workflows/renovate.yml`)
+# is the single source of truth for npm, Docker, and Cargo/Tauri updates. Running both
+# bots on the same ecosystems produced duplicate PRs, so Dependabot is scoped to
+# github-actions only — the one ecosystem we keep on Dependabot for its first-party
+# SHA-pin update support.
+version: 2
+
+updates:
+  # GitHub Actions (keeps every action's SHA pin current — see all workflows).
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+      time: '06:00'
+      timezone: 'Europe/Berlin'
+    open-pull-requests-limit: 5
+    # Reviewers come from .github/CODEOWNERS (* @qnbs) — the dependabot `reviewers`
+    # key is retired and ignored by GitHub, so it is intentionally omitted.
+    labels:
+      - 'dependencies'
+      - 'ci'
+    commit-message:
+      prefix: 'ci'

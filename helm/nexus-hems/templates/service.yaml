@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nexus-hems.fullname" . }}-frontend
+  labels:
+    {{- include "nexus-hems.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  type: {{ .Values.service.frontend.type }}
+  ports:
+    - port: {{ .Values.service.frontend.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "nexus-hems.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nexus-hems.fullname" . }}-server
+  labels:
+    {{- include "nexus-hems.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  {{- if .Values.monitoring.enabled }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3000"
+    prometheus.io/path: "/metrics"
+  {{- end }}
+spec:
+  type: {{ .Values.service.server.type }}
+  ports:
+    - port: {{ .Values.service.server.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "nexus-hems.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: server

@@ -1,0 +1,155 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "PV Power (W)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hems_pv_power_watts",
+          "legendFormat": "PV Power"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#fbbf24" },
+          "unit": "watt"
+        }
+      }
+    },
+    {
+      "title": "Grid Power (W)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hems_grid_power_watts",
+          "legendFormat": "Grid Power"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#f97316" },
+          "unit": "watt"
+        }
+      }
+    },
+    {
+      "title": "Battery SoC (%)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hems_battery_soc_percent",
+          "legendFormat": "Battery SoC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "yellow", "value": 20 },
+              { "color": "green", "value": 50 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "House Load (W)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hems_house_load_watts",
+          "legendFormat": "House Load"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#3b82f6" },
+          "unit": "watt"
+        }
+      }
+    },
+    {
+      "title": "Electricity Price (€/kWh)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hems_tariff_price_eur_per_kwh",
+          "legendFormat": "Price"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#22ff88" },
+          "unit": "currencyEUR",
+          "decimals": 4
+        }
+      }
+    },
+    {
+      "title": "Heat Pump + EV Power (W)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hems_heat_pump_power_watts",
+          "legendFormat": "Heat Pump"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hems_ev_power_watts",
+          "legendFormat": "EV Charger"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "watt" }
+      }
+    },
+    {
+      "title": "Energy Balance (InfluxDB — 7d)",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: \"energy_data\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"energy\" and r._field == \"pvPower\")\n  |> aggregateWindow(every: 1h, fn: mean)",
+          "refId": "PV"
+        },
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb" },
+          "query": "from(bucket: \"energy_data\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"energy\" and r._field == \"houseLoad\")\n  |> aggregateWindow(every: 1h, fn: mean)",
+          "refId": "Load"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "watt" }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["nexus-hems", "energy"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "title": "Nexus HEMS — Energy Overview",
+  "uid": "nexus-energy-overview"
+}

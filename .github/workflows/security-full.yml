@@ -1,0 +1,354 @@
+name: Security Full
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly comprehensive scan — Monday 05:00 UTC
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-full-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # Registered key: security-full.yml:codeql (/language:javascript-typescript)
+  # SINGLE CodeQL source (ADR-027) — the former duplicate definitions in
+  # security.yml and security-scan.yml were removed. Branch-protection rulesets
+  # must require THIS check ("CodeQL"), not the deleted "CodeQL Analysis" ones.
+  # ════════════════════════════════════════════════════════════════
+  #  1. CodeQL — Static Application Security Testing (GitHub)
+  # ════════════════════════════════════════════════════════════════
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          category: '/language:javascript-typescript'
+
+  # ════════════════════════════════════════════════════════════════
+  #  2. Gitleaks — Secret Detection
+  # ════════════════════════════════════════════════════════════════
+  gitleaks:
+    name: 'Gitleaks Secret Scan'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  # ════════════════════════════════════════════════════════════════
+  #  3. Semgrep — SAST Rules
+  # ════════════════════════════════════════════════════════════════
+  # SINGLE Semgrep source (ADR-027). The former "Semgrep SAST" job in
+  # security-scan.yml was removed; require this check ("Semgrep OSS") in rulesets.
+  semgrep:
+    name: Semgrep OSS
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run Semgrep
+        run: semgrep scan --config auto --sarif -o semgrep-results.sarif apps/ packages/
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+        continue-on-error: true
+
+  # ════════════════════════════════════════════════════════════════
+  #  5. Anti-Trojan-Source — Unicode Bidi Attack Detection
+  # ════════════════════════════════════════════════════════════════
+  anti-trojan-source:
+    name: Anti-Trojan-Source
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      # Scope the unicode-bidi scan to first-party source only. Third-party
+      # node_modules contain legitimate emoji variation selectors (date-fns
+      # comments, etc.) that this scanner reports as warnings/failures.
+      - name: Scan for Unicode Bidi characters (first-party source)
+        run: npx anti-trojan-source --files='{apps/{api,web}/src,apps/web/tests,packages/*/src}/**/*.{ts,tsx,js,jsx}' --verbose
+
+      - name: Biome check (Unicode bidi + lint)
+        run: pnpm lint
+
+  # ════════════════════════════════════════════════════════════════
+  #  6. Dependabot / Dependency Audit — Dependency Check
+  # ════════════════════════════════════════════════════════════════
+  dependency-check:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Dependency audit (production)
+        run: pnpm audit --audit-level=high --prod
+
+      - name: Check for critical vulnerabilities
+        run: |
+          pnpm audit --json --audit-level=high --prod > audit.json || true
+          node <<'NODE'
+          const fs = require('fs');
+          const text = fs.readFileSync('audit.json', 'utf8').trim();
+          const docs = text
+            ? text
+                .split(/\n+/)
+                .map((line) => {
+                  try {
+                    return JSON.parse(line);
+                  } catch {
+                    return null;
+                  }
+                })
+                .filter(Boolean)
+            : [];
+          const flattened = docs.flatMap((doc) => (Array.isArray(doc) ? doc : [doc]));
+          const summary =
+            [...flattened].reverse().find((doc) => doc?.metadata?.vulnerabilities || doc?.vulnerabilities) ?? {};
+          const vulnerabilities = summary.metadata?.vulnerabilities ?? summary.vulnerabilities ?? {};
+          const critical = Number(vulnerabilities.critical ?? 0);
+          const high = Number(vulnerabilities.high ?? 0);
+          console.log(`critical=${critical}`);
+          console.log(`high=${high}`);
+          NODE
+          CRITICAL=$(node -e "const fs=require('fs'); const text=fs.readFileSync('audit.json','utf8').trim(); const docs=text?text.split(/\\n+/).map((line)=>{try{return JSON.parse(line)}catch{return null}}).filter(Boolean):[]; const flattened=docs.flatMap((doc)=>Array.isArray(doc)?doc:[doc]); const summary=[...flattened].reverse().find((doc)=>doc?.metadata?.vulnerabilities||doc?.vulnerabilities) ?? {}; const vulnerabilities=summary.metadata?.vulnerabilities ?? summary.vulnerabilities ?? {}; process.stdout.write(String(Number(vulnerabilities.critical ?? 0)));" )
+          HIGH=$(node -e "const fs=require('fs'); const text=fs.readFileSync('audit.json','utf8').trim(); const docs=text?text.split(/\\n+/).map((line)=>{try{return JSON.parse(line)}catch{return null}}).filter(Boolean):[]; const flattened=docs.flatMap((doc)=>Array.isArray(doc)?doc:[doc]); const summary=[...flattened].reverse().find((doc)=>doc?.metadata?.vulnerabilities||doc?.vulnerabilities) ?? {}; const vulnerabilities=summary.metadata?.vulnerabilities ?? summary.vulnerabilities ?? {}; process.stdout.write(String(Number(vulnerabilities.high ?? 0)));" )
+          echo "## Dependency Audit Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Severity | Count |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Critical | $CRITICAL |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| High     | $HIGH |" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "::error::Critical vulnerabilities found!"
+            exit 1
+          fi
+
+      - name: Verify Dependabot config exists
+        run: |
+          if [ ! -f .github/dependabot.yml ]; then
+            echo "::error::Missing .github/dependabot.yml — Dependabot is not configured!"
+            exit 1
+          fi
+          echo "✓ Dependabot config found"
+
+      - name: License compliance check
+        run: npx license-checker --production --failOn 'GPL-3.0;AGPL-3.0' --summary
+        continue-on-error: true
+
+  # ════════════════════════════════════════════════════════════════
+  #  7. Deep Scans (scheduled / manual only) — license + full dev-dep audit
+  # ════════════════════════════════════════════════════════════════
+  # OpenSSF Scorecard runs in the dedicated scorecard.yml (single source — ADR-027).
+  # These two jobs were consolidated here from the now-deleted security-scan.yml.
+  license-check:
+    name: License Compliance
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      # Advisory (continue-on-error): reports GPL/AGPL in production deps but does not
+      # fail the scheduled scan. Promote to a hard gate by dropping continue-on-error.
+      - name: Check production licenses (GPL/AGPL — advisory)
+        run: npx license-checker --production --failOn 'GPL-3.0;AGPL-3.0' --summary
+        continue-on-error: true
+
+      - name: License summary
+        run: |
+          echo "## License Compliance Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          npx license-checker --production --summary 2>&1 | tail -50 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  audit-full:
+    name: Full Dependency Audit (incl. dev-deps)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Audit ALL deps (including dev-deps)
+        run: |
+          echo "## Full pnpm Audit (incl. dev-deps)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          pnpm audit --audit-level=high 2>&1 | tail -40 >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "_Production-deps gate runs on every push in the dependency-check job above._" >> "$GITHUB_STEP_SUMMARY"
+
+  # ════════════════════════════════════════════════════════════════
+  #  8. Branch Protection Reminder — Verify repo hardening
+  # ════════════════════════════════════════════════════════════════
+  branch-protection-reminder:
+    name: Branch Protection Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Check required files exist
+        run: |
+          echo "## Branch Protection & Repo Hardening Checklist" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          PASS=0
+          FAIL=0
+
+          check_file() {
+            if [ -f "$1" ]; then
+              echo "- ✅ \`$1\` exists" >> "$GITHUB_STEP_SUMMARY"
+              PASS=$((PASS + 1))
+            else
+              echo "- ❌ \`$1\` **missing**" >> "$GITHUB_STEP_SUMMARY"
+              FAIL=$((FAIL + 1))
+            fi
+          }
+
+          echo "### Required Files" >> "$GITHUB_STEP_SUMMARY"
+          check_file "SECURITY.md"
+          check_file "CODE_OF_CONDUCT.md"
+          check_file "CONTRIBUTING.md"
+          check_file "LICENSE"
+          check_file ".github/CODEOWNERS"
+          check_file ".github/dependabot.yml"
+          check_file ".github/ISSUE_TEMPLATE/bug_report.md"
+          check_file ".github/ISSUE_TEMPLATE/feature_request.md"
+          check_file ".github/PULL_REQUEST_TEMPLATE.md"
+          check_file ".gitleaks.toml"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Summary: $PASS passed, $FAIL missing" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 🔒 Branch Protection Reminder" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Ensure the following are enabled in **Settings → Branches → main**:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [ ] Require pull request before merging" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [ ] Require approvals (optional in single-maintainer mode)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [ ] Require status checks to pass (CI, Security Full)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [ ] Require branches to be up to date" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [ ] Require signed commits" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [ ] Include administrators" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [ ] Restrict force pushes" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [ ] Restrict deletions" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$FAIL" -gt 0 ]; then
+            echo "::warning::$FAIL required files are missing — see Job Summary"
+          fi
+
+  # ════════════════════════════════════════════════════════════════
+  #  Gate — All security checks must pass
+  # ════════════════════════════════════════════════════════════════
+  security-gate:
+    name: Security Gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - codeql
+      - gitleaks
+      - semgrep
+      - anti-trojan-source
+      - dependency-check
+      - branch-protection-reminder
+    steps:
+      - name: Evaluate security results
+        run: |
+          echo "## Security Gate Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CodeQL | ${{ needs.codeql.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Gitleaks | ${{ needs.gitleaks.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Semgrep | ${{ needs.semgrep.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Anti-Trojan-Source | ${{ needs.anti-trojan-source.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Dependency Audit | ${{ needs.dependency-check.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch Protection | ${{ needs.branch-protection-reminder.result }} |" >> "$GITHUB_STEP_SUMMARY"
+
+          # Fail the gate if any critical job failed
+          if [[ "${{ needs.codeql.result }}" == "failure" || \
+                "${{ needs.gitleaks.result }}" == "failure" || \
+                "${{ needs.semgrep.result }}" == "failure" || \
+                "${{ needs.anti-trojan-source.result }}" == "failure" || \
+                "${{ needs.dependency-check.result }}" == "failure" ]]; then
+            echo ""
+            echo "::error::Security Gate FAILED — one or more critical checks did not pass"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ Security Gate passed — all critical checks succeeded"

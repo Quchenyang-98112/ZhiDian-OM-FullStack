@@ -1,0 +1,19 @@
+{{- if .Values.podSecurity.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "nexus-hems.name" . }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    # Pod Security Standards (PSS) — enforced at namespace level.
+    # Replaced PodSecurityPolicy (deprecated K8s 1.21, removed K8s 1.25).
+    # Values: privileged | baseline | restricted
+    # See: https://kubernetes.io/docs/concepts/security/pod-security-standards/
+    pod-security.kubernetes.io/enforce: {{ .Values.podSecurity.enforce | default "restricted" | quote }}
+    pod-security.kubernetes.io/enforce-version: {{ .Values.podSecurity.enforceVersion | default "latest" | quote }}
+    pod-security.kubernetes.io/audit: {{ .Values.podSecurity.audit | default "restricted" | quote }}
+    pod-security.kubernetes.io/audit-version: {{ .Values.podSecurity.auditVersion | default "latest" | quote }}
+    pod-security.kubernetes.io/warn: {{ .Values.podSecurity.warn | default "restricted" | quote }}
+    pod-security.kubernetes.io/warn-version: {{ .Values.podSecurity.warnVersion | default "latest" | quote }}
+{{- end }}

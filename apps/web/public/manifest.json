@@ -1,0 +1,152 @@
+{
+  "name": "Nexus HEMS Dashboard",
+  "short_name": "Nexus-HEMS",
+  "description": "Real-time Home Energy Management System with Victron Cerbo GX, KNX, Dynamic Tariffs & AI Optimizer",
+  "start_url": "/Nexus-HEMS-Dash/",
+  "scope": "/Nexus-HEMS-Dash/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "any",
+  "categories": ["utilities", "productivity"],
+  "lang": "en-US",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/Nexus-HEMS-Dash/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/icon-192x192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/icon-512x512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/Nexus-HEMS-Dash/screenshot-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Nexus HEMS Dashboard — Desktop View"
+    },
+    {
+      "src": "/Nexus-HEMS-Dash/screenshot-narrow.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Nexus HEMS Dashboard — Mobile View"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View real-time energy flow",
+      "url": "/Nexus-HEMS-Dash/",
+      "icons": [
+        {
+          "src": "/Nexus-HEMS-Dash/icon-96x96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "AI Optimizer",
+      "short_name": "Optimizer",
+      "description": "Optimize energy consumption with AI",
+      "url": "/Nexus-HEMS-Dash/ai-optimizer",
+      "icons": [
+        {
+          "src": "/Nexus-HEMS-Dash/icon-96x96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "short_name": "Settings",
+      "description": "Configure your HEMS",
+      "url": "/Nexus-HEMS-Dash/settings",
+      "icons": [
+        {
+          "src": "/Nexus-HEMS-Dash/icon-96x96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "share_target": {
+    "action": "/Nexus-HEMS-Dash/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "iarc_rating_id": "e84b072d-71b3-4d3e-86ae-31a8ce4e53b7"
+}

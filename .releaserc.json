@@ -1,0 +1,78 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "type": "feat", "release": "minor" },
+          { "type": "fix", "release": "patch" },
+          { "type": "perf", "release": "patch" },
+          { "type": "security", "release": "patch" },
+          { "type": "a11y", "release": "patch" },
+          { "type": "i18n", "release": "patch" },
+          { "type": "refactor", "release": "patch" },
+          { "type": "docs", "release": false },
+          { "type": "style", "release": false },
+          { "type": "test", "release": false },
+          { "type": "ci", "release": false },
+          { "type": "chore", "release": false },
+          { "type": "build", "release": false }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat", "section": "✨ Features" },
+            { "type": "fix", "section": "🐛 Bug Fixes" },
+            { "type": "perf", "section": "⚡ Performance" },
+            { "type": "security", "section": "🔒 Security" },
+            { "type": "a11y", "section": "♿ Accessibility" },
+            { "type": "i18n", "section": "🌐 Internationalization" },
+            { "type": "refactor", "section": "♻️ Refactoring" },
+            { "type": "docs", "section": "📝 Documentation", "hidden": true },
+            { "type": "test", "section": "✅ Tests", "hidden": true },
+            { "type": "ci", "section": "🔧 CI/CD", "hidden": true },
+            { "type": "chore", "section": "🏗️ Maintenance", "hidden": true }
+          ]
+        }
+      }
+    ],
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogFile": "CHANGELOG.md"
+      }
+    ],
+    [
+      "@semantic-release/npm",
+      {
+        "npmPublish": false
+      }
+    ],
+    ["@semantic-release/github"],
+    [
+      "@semantic-release/git",
+      {
+        "assets": [
+          "CHANGELOG.md",
+          "package.json",
+          "pnpm-lock.yaml",
+          "apps/api/package.json",
+          "apps/web/package.json",
+          "packages/shared-types/package.json",
+          "packages/ai-core/package.json",
+          "apps/web/src-tauri/tauri.conf.json",
+          "apps/web/src-tauri/Cargo.toml",
+          "helm/nexus-hems/Chart.yaml"
+        ],
+        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ]
+  ]
+}

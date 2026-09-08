@@ -1,0 +1,82 @@
+"""shuangan exception hierarchy.
+
+All exceptions inherit from shuanganError, enabling callers to catch
+any framework error with a single ``except shuanganError`` clause.
+"""
+
+
+class shuanganError(Exception):
+    """Base exception for all shuangan errors."""
+
+
+# --- Connector errors ---
+
+
+class ConnectorError(shuanganError):
+    """Error communicating with an external system via a connector."""
+
+
+class ConnectorAuthError(ConnectorError):
+    """Authentication or authorization failure in a connector."""
+
+
+class ConnectorTimeoutError(ConnectorError):
+    """A connector operation timed out."""
+
+
+class ConnectorConfigError(ConnectorError):
+    """A connector's configuration is invalid or incomplete."""
+
+
+class ConnectorSchemaError(ConnectorError):
+    """A schema mapping does not match the external data source."""
+
+
+class ConnectorLockedError(ConnectorError):
+    """The target resource is locked by another process."""
+
+
+class ConnectorTransientError(ConnectorError):
+    """A transient error (deadlock, timeout) that may succeed on retry."""
+
+
+class ConnectorDriverError(ConnectorError):
+    """A required database driver is not installed on the system."""
+
+
+class ConnectorDependencyError(ConnectorError):
+    """A required Python package (extra) is not installed."""
+
+
+class SandboxViolationError(ConnectorError):
+    """A write operation was blocked because sandbox mode is active."""
+
+
+# --- Domain errors ---
+
+
+class DomainValidationError(shuanganError):
+    """A domain entity failed validation."""
+
+
+class AssetNotFoundError(shuanganError):
+    """The requested asset was not found in the registry."""
+
+
+# --- Agent errors ---
+
+
+class AgentError(shuanganError):
+    """Error in the agent runtime layer."""
+
+
+class LLMError(AgentError):
+    """Error calling or processing an LLM response."""
+
+
+class PermissionDeniedError(AgentError):
+    """An agent attempted to access a tool outside its allowed tool set."""
+
+
+class WorkflowError(AgentError):
+    """Error executing a workflow step."""

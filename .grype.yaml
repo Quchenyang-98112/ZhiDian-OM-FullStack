@@ -1,0 +1,18 @@
+# Nexus-HEMS Grype vulnerability policy
+# Canonical documentation: docs/Supply-Chain-Grype-Policy.md
+# Registry entry: docs/Technical-Debt-Registry.md (SUPPLY-02)
+# Review cadence: quarterly — next review 2026-09-29
+
+ignore:
+  # Distroless backend base image — glibc in debian13; no upstream fix available.
+  - vulnerability: CVE-2026-5450
+    package:
+      name: libc6
+      type: deb
+    reason: >
+      Accepted upstream base-image risk in gcr.io/distroless/nodejs24-debian13 (libc6
+      2.41-12+deb13u3). Grype/Debian mark as won't-fix; no patched package as of
+      2026-06-29. Compensating runtime controls: Kubernetes PSS restricted, readOnlyRootFilesystem,
+      capabilities drop ALL, seccomp RuntimeDefault, nonroot uid 65532, NetworkPolicy.
+      Remove this rule when distroless publishes a patched libc6 or after migration to a
+      zero-CVE base (e.g. Chainguard). Quarterly re-validation required (SUPPLY-02).

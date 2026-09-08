@@ -1,0 +1,73 @@
+# <type>(<scope>): <short summary>
+
+#
+
+# ─── Types ────────────────────────────────────────────────────────
+
+# feat: New feature
+
+# fix: Bug fix
+
+# docs: Documentation only
+
+# style: Formatting (no code change)
+
+# refactor: Code restructuring (no feat/fix)
+
+# perf: Performance improvement
+
+# test: Adding or updating tests
+
+# build: Build system or external deps
+
+# ci: CI/CD configuration
+
+# chore: Maintenance tasks
+
+# revert: Revert a previous commit
+
+# security: Security fix or hardening
+
+# a11y: Accessibility improvement
+
+# i18n: Internationalization / localization
+
+#
+
+# ─── Scopes (optional) ───────────────────────────────────────────
+
+# sankey, floorplan, adapter, victron, knx, eebus, ocpp, modbus,
+
+# tariff, ai, pwa, store, ui, settings, auth, db, e2e, deps,
+
+# docker, ci, theme
+
+#
+
+# ─── Examples ────────────────────────────────────────────────────
+
+# feat(sankey): add battery charge animation
+
+# fix(ocpp): handle V2X disconnect gracefully
+
+# security(adapter): validate MQTT topic input
+
+# i18n: add missing German translations for tariff page
+
+# perf(store): debounce energy data updates
+
+# a11y(ui): improve screen reader support for sidebar
+
+#
+
+# ─── Rules ───────────────────────────────────────────────────────
+
+# • Subject: imperative, lowercase, no period, max 100 chars
+
+# • Body: explain _what_ and _why_ (not _how_), wrap at 200
+
+# • Footer: reference issues (Closes #123, Refs #456)
+
+# • Breaking changes: add BREAKING CHANGE: in footer
+
+#

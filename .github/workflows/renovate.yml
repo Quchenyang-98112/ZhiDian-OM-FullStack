@@ -1,0 +1,50 @@
+name: Renovate
+
+on:
+  # Daily at 05:00 UTC (07:00 Berlin)
+  schedule:
+    - cron: '0 5 * * *'
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: 'Dry run (no PRs created)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+# Read-only default; the renovate job grants write scopes explicitly.
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    if: github.repository == 'qnbs/Nexus-HEMS-Dash'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Self-hosted Renovate
+        if: env.RENOVATE_TOKEN != ''
+        uses: renovatebot/github-action@693b9ef15eec82123529a37c782242f091365961 # v46.1.14
+        with:
+          configurationFile: .renovaterc.json
+          token: ${{ secrets.RENOVATE_TOKEN }}
+        env:
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          LOG_LEVEL: info
+          RENOVATE_DRY_RUN: ${{ github.event.inputs.dryRun || 'false' }}

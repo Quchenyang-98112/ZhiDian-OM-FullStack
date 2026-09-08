@@ -1,0 +1,198 @@
+# Nexus HEMS — Prometheus Alert Rules
+groups:
+  - name: hems_energy
+    rules:
+      - alert: HighGridImport
+        expr: hems_grid_power_watts > 4200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Grid import exceeds 4200W for 5+ minutes'
+          description: 'Current grid import: {{ $value }}W'
+
+      - alert: BatteryLow
+        expr: hems_battery_soc_percent < 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Battery SoC below 10% for 10+ minutes'
+          description: 'Battery SoC: {{ $value }}%'
+
+      - alert: HighElectricityPrice
+        expr: hems_tariff_price_eur_per_kwh > 0.40
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Electricity price exceeds 40 ct/kWh'
+          description: 'Current price: {{ $value }} EUR/kWh'
+
+      - alert: GridVoltageAnomaly
+        expr: hems_grid_voltage_volts < 210 or hems_grid_voltage_volts > 250
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Grid voltage outside 210–250V tolerance'
+          description: 'Voltage: {{ $value }}V'
+
+  - name: hems_system
+    rules:
+      - alert: AdapterDisconnected
+        expr: hems_adapter_connected == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Adapter {{ $labels.adapter_id }} disconnected for 2+ minutes'
+
+      - alert: HighAdapterErrorRate
+        expr: rate(hems_adapter_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High error rate for adapter {{ $labels.adapter_id }}'
+          description: 'Error rate: {{ $value }}/s'
+
+      - alert: ServerDown
+        expr: up{job="nexus-hems-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'HEMS server is down'
+
+      - alert: HighMemoryUsage
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Host memory usage above 90%'
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Host CPU usage above 85% for 10+ minutes'
+
+  - name: hems_frontend_errors
+    rules:
+      - alert: HighFrontendErrorRate
+        expr: rate(hems_frontend_errors_total[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High frontend error rate ({{ $value }}/s)'
+          description: 'Source: {{ $labels.source }}, Severity: {{ $labels.severity }}'
+
+      - alert: ErrorBoundaryTriggered
+        expr: increase(hems_error_boundary_catches_total[10m]) > 3
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'ErrorBoundary caught {{ $value }} errors in 10 minutes'
+          description: 'Component: {{ $labels.component }}'
+
+      - alert: CircuitBreakerOpen
+        expr: hems_circuit_breaker_state == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Circuit breaker OPEN for adapter {{ $labels.adapter }}'
+          description: 'Adapter is isolated — manual intervention may be needed'
+
+  - name: hems_security
+    rules:
+      - alert: JTIRevocationFailure
+        expr: increase(hems_jti_revocation_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'JTI revocation backend failure — revoked tokens may be accepted'
+          description: 'Redis write errors or in-memory overflow detected. Restart server to clear in-memory store.'
+
+      - alert: JTIStoreNearCapacity
+        expr: hems_jti_store_size / 10000 > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'JTI revocation store at {{ $value | humanizePercentage }} capacity'
+          description: 'In-memory fallback JTI store approaching 10k limit. Configure REDIS_URL for durable revocation.'
+
+      - alert: EEBUSCertExpiryWarning
+        expr: (hems_eebus_cert_expiry_timestamp_seconds - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'EEBUS mTLS certificate expires in {{ $value | humanizeDuration }} days'
+          description: 'Renew the EEBUS SPINE/SHIP certificate before expiry to avoid trust failures.'
+
+      - alert: EEBUSCertExpiryImmediate
+        expr: (hems_eebus_cert_expiry_timestamp_seconds - time()) / 86400 < 7
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'EEBUS mTLS certificate expires in < 7 days — URGENT renewal required'
+          description: 'EEBUS communication will fail after certificate expiry.'
+
+  - name: hems_performance
+    rules:
+      - alert: MPCSolveTimeSlow
+        expr: hems_mpc_solve_duration_seconds > 5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'MPC optimizer solve time {{ $value | humanizeDuration }}s exceeds 5s threshold'
+          description: 'Day-ahead schedule computation is slower than expected. Check constraint complexity or reduce forecast horizon.'
+
+      - alert: DownsamplingLagHigh
+        expr: hems_downsampling_lag_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Dexie downsampling pipeline lag {{ $value | humanizeDuration }}s'
+          description: 'Background aggregation service is falling behind. May indicate IndexedDB write contention.'
+
+      - alert: PVForecastAccuracyDrift
+        expr: abs(hems_pv_forecast_accuracy_ratio - 1) > 0.3
+        for: 60m
+        labels:
+          severity: info
+        annotations:
+          summary: 'PV forecast accuracy drifted {{ $value | humanizePercentage }} from baseline'
+          description: 'Forecast MAE >30% deviation. Retrain model or recalibrate weather API source.'
+
+  - name: hems_business
+    rules:
+      - alert: SelfConsumptionRateLow
+        expr: hems_self_consumption_ratio < 0.5
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Self-consumption rate {{ $value | humanizePercentage }} below 50%'
+          description: 'More than half of PV generation is being fed back to the grid. Consider activating battery charge controller.'
+
+      - alert: GridImportCostHigh
+        expr: increase(hems_grid_cost_eur_total[1h]) > 2.0
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Grid import cost exceeds €2.00 in the last hour'
+          description: 'Consider activating peak-shaving controller or reviewing tariff schedule.'

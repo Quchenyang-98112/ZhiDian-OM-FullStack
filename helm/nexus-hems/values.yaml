@@ -1,0 +1,199 @@
+# ─── Image ───────────────────────────────────────────────────────────
+image:
+  trustedRegistries:
+    - ghcr.io/qnbs/
+  frontend:
+    repository: ghcr.io/qnbs/nexus-hems-dash
+    # Overridden by --set image.frontend.tag during CI/CD; defaults to Chart appVersion
+    tag: ''
+    # Optional immutable pin: if set, deployment uses repository@digest instead of tag
+    digest: ''
+    pullPolicy: IfNotPresent
+  server:
+    repository: ghcr.io/qnbs/nexus-hems-server
+    # Overridden by --set image.server.tag during CI/CD; defaults to Chart appVersion
+    tag: ''
+    # Optional immutable pin: if set, deployment uses repository@digest instead of tag
+    digest: ''
+    pullPolicy: IfNotPresent
+
+# ─── Deployment Strategy & Rollback ─────────────────────────────────
+deployment:
+  revisionHistoryLimit: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+# ─── Replicas ────────────────────────────────────────────────────────
+# server.replicaCount > 1 requires server.redisUrl (REDIS_URL) for offline sync
+# idempotency and version/diff persistence — see ADR-030 and NOTES.txt.
+replicaCount:
+  frontend: 2
+  server: 2
+
+# ─── Server (API) ───────────────────────────────────────────────────
+server:
+  # Optional Redis URL for HA offline sync + idempotency (maps to REDIS_URL).
+  # Required when replicaCount.server > 1.
+  redisUrl: ''
+
+# ─── Service ─────────────────────────────────────────────────────────
+service:
+  frontend:
+    type: ClusterIP
+    port: 8080
+  server:
+    type: ClusterIP
+    port: 3000
+
+# ─── Ingress ─────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '60'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '60'
+    nginx.ingress.kubernetes.io/websocket-services: nexus-hems-server
+  host: hems.example.com
+  tls:
+    secretName: nexus-hems-tls
+
+# ─── Frontend (nginx) ────────────────────────────────────────────────
+frontend:
+  # CSP connect-src WebSocket origins (space-separated ws:// or wss:// URLs).
+  # Validated at container start by docker-entrypoint.sh (MED-03).
+  # When empty, defaults to wss://<ingress.host> at render time.
+  wsOrigins: ''
+
+# ─── Resources ───────────────────────────────────────────────────────
+resources:
+  frontend:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  server:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ─── HPA ─────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilization: 70
+  targetMemoryUtilization: 80
+
+# ─── Monitoring ──────────────────────────────────────────────────────
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    scrapeTimeout: 10s
+  prometheusRule:
+    enabled: true
+  grafanaDashboard:
+    enabled: true
+
+# ─── Security ────────────────────────────────────────────────────────
+# Pod Security Standards (PSS) — enforced at namespace level via namespace.yaml template.
+# Set podSecurity.createNamespace: true to enable PSS labels on the namespace.
+# See: https://kubernetes.io/docs/concepts/security/pod-security-standards/
+podSecurity:
+  # Set true only when Helm has permission to create/manage the namespace
+  createNamespace: false
+  enforce: restricted
+  enforceVersion: latest
+  audit: restricted
+  auditVersion: latest
+  warn: restricted
+  warnVersion: latest
+
+podSecurityContext:
+  # Deprecated — use serverPodSecurityContext / frontendPodSecurityContext
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+# Distroless nonroot uid (65532) — must match Dockerfile.server COPY --chown
+serverPodSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# nginx-unprivileged default uid
+frontendPodSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ─── Environment ─────────────────────────────────────────────────────
+env:
+  NODE_ENV: production
+  PORT: '3000'
+  ADAPTER_MODE: mock
+
+# ─── Secrets (reference existing K8s secret) ─────────────────────────
+existingSecret: ''
+# If set, expects keys: JWT_SECRET, SENTRY_DSN
+
+# ─── Network Policy ─────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+
+# ─── PDB ─────────────────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ─── cert-manager (EEBUS TLS 1.3 mTLS) ──────────────────────────────
+certManager:
+  # Set to true to create a ClusterIssuer + wildcard certificate for EEBUS mTLS
+  enabled: false
+  # cert-manager ClusterIssuer name to reference for TLS certificate requests
+  issuerName: nexus-hems-eebus-issuer
+  # ACME staging/prod server URL (used when acme.enabled=true)
+  acme:
+    enabled: false
+    email: ''
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # Name of the Kubernetes Secret that stores the ACME account private key
+    privateKeySecretName: nexus-hems-acme-account-key
+  # Self-signed issuer for local/development EEBUS mTLS (used when acme.enabled=false)
+  selfSigned:
+    enabled: true
+  # TLS Secret that cert-manager will manage (must match EEBUS TLS secret refs)
+  certificateSecretName: nexus-hems-eebus-tls
+  # DNS names included in the EEBUS device certificate
+  dnsNames:
+    - nexus-hems.local
+  # Certificate duration and renewal window
+  duration: 8760h    # 1 year
+  renewBefore: 720h  # 30 days

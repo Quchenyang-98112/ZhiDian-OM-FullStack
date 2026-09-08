@@ -1,0 +1,19 @@
+apiVersion: v2
+name: nexus-hems
+description: Nexus HEMS Dashboard — Real-time Home Energy Management System
+type: application
+version: 1.11.1
+appVersion: '1.11.1'
+keywords:
+  - hems
+  - energy-management
+  - smart-home
+  - victron
+  - knx
+  - eebus
+  - ocpp
+maintainers:
+  - name: Nexus HEMS Team
+home: https://github.com/qnbs/Nexus-HEMS-Dash
+sources:
+  - https://github.com/qnbs/Nexus-HEMS-Dash

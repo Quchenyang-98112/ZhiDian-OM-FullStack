@@ -1,0 +1,10 @@
+[
+  {
+    "friendlyName": "grid_meter",
+    "role": "grid"
+  },
+  {
+    "friendlyName": "heat_pump_plug",
+    "role": "heatpump"
+  }
+]

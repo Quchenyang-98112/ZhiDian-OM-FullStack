@@ -1,0 +1,286 @@
+name: Deploy
+
+on:
+  # Auto-deploy the live demo on every push to main. main only accepts
+  # green-CI PRs (branch ruleset), so a push here is already post-CI. The
+  # deploy job still needs a successful build (needs: build), so a broken
+  # build never publishes.
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      approveDeploy:
+        description: 'Type DEPLOY to confirm production pages deployment'
+        required: true
+        default: 'NO'
+
+# Read-only default; build/deploy jobs declare required scopes.
+permissions: read-all
+
+concurrency:
+  group: 'pages'
+  # Do not cancel an in-flight Pages publish — rapid main pushes otherwise leave
+  # github-pages in a bad state and the next deploy fails with "try again later".
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  GITHUB_PAGES_DEPLOYMENTS_KEEP: '10'
+  # Cooldown between Pages publishes — rapid main pushes trigger "try again later".
+  GITHUB_PAGES_COOLDOWN_SEC: '180'
+  # upload-pages-artifact reserves an in_progress deployment for the current SHA;
+  # treat foreign stuck deploys as stale after 3 min (was 10 min — caused 15 min deadlocks).
+  GITHUB_PAGES_STALE_IN_PROGRESS_SEC: '180'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write # upload-pages-artifact
+
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Validate runner compatibility (checkout v6)
+        shell: bash
+        run: |
+          required="2.329.0"
+          current="${ACTIONS_RUNNER_VERSION:-unknown}"
+          echo "Runner version: ${current}"
+          if [ "${current}" = "unknown" ]; then
+            echo "::warning::ACTIONS_RUNNER_VERSION is not exposed; skipping strict runner version check."
+            exit 0
+          fi
+          lowest=$(printf '%s\n%s\n' "${required}" "${current}" | sort -V | head -n1)
+          if [ "${lowest}" != "${required}" ]; then
+            echo "::error::Runner ${current} is below required ${required} for checkout v6 compatibility."
+            exit 1
+          fi
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build
+        run: pnpm build
+        env:
+          NODE_ENV: production
+
+      - name: Setup Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        with:
+          enablement: true
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: './apps/web/dist'
+
+  prune-before-deploy:
+    # Prune *before* publish so GitHub Pages API is not wedged by 100+ stale deployments.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.approveDeploy == 'DEPLOY')
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Prune stale github-pages deployments (keep newest 10)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: bash .github/scripts/prune-github-pages-deployments.sh "${GITHUB_PAGES_DEPLOYMENTS_KEEP}" github-pages
+
+  wait-for-pages-idle:
+    # Must NOT use environment: github-pages — that job-level binding creates an
+    # in_progress deployment before steps run, deadlocking the idle-wait script.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.approveDeploy == 'DEPLOY')
+    runs-on: ubuntu-latest
+    needs: [build, prune-before-deploy]
+    timeout-minutes: 20
+    permissions:
+      deployments: read
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Wait for github-pages environment idle (pre-deploy)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: >-
+          bash .github/scripts/wait-for-github-pages-idle.sh
+          github-pages "${GITHUB_PAGES_COOLDOWN_SEC}" 900 20 "${GITHUB_PAGES_STALE_IN_PROGRESS_SEC}"
+
+  deploy:
+    # Auto-deploy on push to main; manual dispatch keeps the explicit DEPLOY gate.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.approveDeploy == 'DEPLOY')
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: [build, prune-before-deploy, wait-for-pages-idle]
+    timeout-minutes: 45
+    permissions:
+      pages: write
+      id-token: write
+      deployments: read
+
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        with:
+          timeout: 600000
+          reporting_interval: 15000
+
+      - name: Wait before Pages retry (1/3)
+        if: steps.deployment.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: >-
+          bash .github/scripts/wait-for-github-pages-idle.sh
+          github-pages 60 600 20 "${GITHUB_PAGES_STALE_IN_PROGRESS_SEC}"
+
+      - name: Retry Pages deploy (1/3)
+        if: steps.deployment.outcome == 'failure'
+        id: deployment_retry
+        continue-on-error: true
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        with:
+          timeout: 600000
+          reporting_interval: 15000
+
+      - name: Wait before Pages retry (2/3)
+        if: steps.deployment.outcome == 'failure' && steps.deployment_retry.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: >-
+          bash .github/scripts/wait-for-github-pages-idle.sh
+          github-pages 120 600 20 "${GITHUB_PAGES_STALE_IN_PROGRESS_SEC}"
+
+      - name: Retry Pages deploy (2/3)
+        if: steps.deployment.outcome == 'failure' && steps.deployment_retry.outcome != 'success'
+        id: deployment_retry2
+        continue-on-error: true
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        with:
+          timeout: 600000
+          reporting_interval: 15000
+
+      - name: Wait before Pages retry (3/3)
+        if: >-
+          steps.deployment.outcome == 'failure' &&
+          steps.deployment_retry.outcome != 'success' &&
+          steps.deployment_retry2.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: >-
+          bash .github/scripts/wait-for-github-pages-idle.sh
+          github-pages 180 600 20 "${GITHUB_PAGES_STALE_IN_PROGRESS_SEC}"
+
+      - name: Retry Pages deploy (3/3)
+        if: >-
+          steps.deployment.outcome == 'failure' &&
+          steps.deployment_retry.outcome != 'success' &&
+          steps.deployment_retry2.outcome != 'success'
+        id: deployment_retry3
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        with:
+          timeout: 600000
+          reporting_interval: 15000
+
+      - name: Fail if Pages deploy did not succeed
+        if: >-
+          always() &&
+          !(steps.deployment.outcome == 'success' ||
+            steps.deployment_retry.outcome == 'success' ||
+            steps.deployment_retry2.outcome == 'success' ||
+            steps.deployment_retry3.outcome == 'success')
+        run: |
+          echo "::error::GitHub Pages deployment failed (initial + 3 retries). Deploy Recovery will rerun failed jobs after cooldown, or dispatch deploy.yml manually."
+          exit 1
+
+  verify-pages:
+    # Catch “green workflow, public 403” regressions early.
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Verify Pages root is publicly reachable
+        env:
+          PAGE_URL: https://qnbs.github.io/Nexus-HEMS-Dash/
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "${PAGE_URL}")
+            echo "Attempt ${attempt}: ${PAGE_URL} → HTTP ${code}"
+            if [ "${code}" = "200" ]; then
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::Pages root returned HTTP ${code} (expected 200). See docs/runbooks/Pages-403-Remediation.md"
+          exit 1
+
+  prune-deployments:
+    # Auto-deploy creates one github-pages deployment per push, which pile up
+    # (150+). After a successful deploy, keep only the newest few and delete the
+    # rest so the environment's deployment list stays small.
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Prune old github-pages deployments (keep newest 10)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: bash .github/scripts/prune-github-pages-deployments.sh "${GITHUB_PAGES_DEPLOYMENTS_KEEP}" github-pages

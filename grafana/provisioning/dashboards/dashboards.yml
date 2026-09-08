@@ -1,0 +1,13 @@
+# Nexus HEMS — Grafana Dashboard Provisioning
+apiVersion: 1
+
+providers:
+  - name: 'Nexus HEMS'
+    orgId: 1
+    folder: 'HEMS'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
+      foldersFromFilesStructure: false

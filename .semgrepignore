@@ -1,0 +1,16 @@
+# Semgrep ignore patterns
+# Shell WS_ORIGINS validation — JS insecure-websocket rule false-positive on `ws://*` patterns
+apps/web/docker-entrypoint.sh
+dist/
+node_modules/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+src/tests/
+tests/
+coverage/
+*.min.js
+*.bundle.js
+public/
+docs/

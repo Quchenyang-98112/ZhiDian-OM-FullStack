@@ -1,0 +1,87 @@
+# Nexus HEMS — Prometheus Configuration
+#
+# Scrapes metrics from the backend server's /metrics endpoint.
+# Adapter-specific metrics are exported per adapter label.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+  external_labels:
+    deployment: 'nexus-hems'
+    environment: 'production'
+
+# ─── Alert Rules ─────────────────────────────────────────────────────
+rule_files:
+  - 'rules/*.yml'
+
+# ─── Alertmanager ────────────────────────────────────────────────────
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['nexus-alertmanager:9093']
+
+scrape_configs:
+  # ── HEMS Server Metrics ───────────────────────────────────────
+  # LOW-04: Set PROMETHEUS_BEARER_TOKEN env var and configure nexus-hems
+  # server to validate it on /metrics. Without it, metrics are public.
+  # Example (docker-compose):
+  #   environment:
+  #     PROMETHEUS_BEARER_TOKEN: "${PROMETHEUS_BEARER_TOKEN}"
+  - job_name: 'nexus-hems-server'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['nexus-hems-server:3000']
+        labels:
+          instance: 'hems-server'
+    metrics_path: '/metrics'
+    authorization:
+      credentials: '${PROMETHEUS_BEARER_TOKEN}'
+
+  # ── Adapter Bridge Metrics ────────────────────────────────────
+  - job_name: 'nexus-adapter-bridge'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['nexus-adapter-bridge:3001']
+        labels:
+          instance: 'adapter-bridge'
+    metrics_path: '/metrics'
+
+  # ── Prometheus self-monitoring ────────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── Node Exporter (host metrics) ──────────────────────────────
+  - job_name: 'node-exporter'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['nexus-node-exporter:9100']
+        labels:
+          instance: 'host'
+
+  # ── InfluxDB Exporter (historical metrics bridge) ─────────────
+  - job_name: 'influxdb'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['nexus-influxdb:8086']
+        labels:
+          instance: 'influxdb'
+    metrics_path: '/metrics'
+
+  # ── Grafana self-monitoring ───────────────────────────────────
+  - job_name: 'grafana'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['nexus-grafana:3000']
+        labels:
+          instance: 'grafana'
+
+# ── Remote Write (Prometheus → InfluxDB) ─────────────────────────
+remote_write:
+  - url: 'http://nexus-influxdb:8086/api/v1/prom/write?db=nexus_hems'
+    queue_config:
+      max_samples_per_send: 1000
+      batch_send_deadline: 5s
+      capacity: 5000

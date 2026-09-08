@@ -1,0 +1,148 @@
+name: Graphify Knowledge Graph
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Minimal top-level permissions; each job declares the least privilege it needs.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ════════════════════════════════════════════════════════════════
+  #  Generate knowledge graph for architecture analysis
+  # ════════════════════════════════════════════════════════════════
+  generate-graph:
+    name: Generate Knowledge Graph
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install graphify
+        run: python -m pip install graphifyy -q
+
+      - name: Generate knowledge graph
+        run: |
+          mkdir -p graphify-out
+          python -c "
+          import json
+          from graphify.detect import detect
+          from graphify.extract import collect_files, extract
+          from graphify.build import build_from_json
+          from graphify.cluster import cluster
+          from graphify.analyze import god_nodes, surprising_connections
+          from graphify.report import generate
+          from pathlib import Path
+
+          # Detect files
+          result = detect(Path('.'))
+          code_files = []
+          for f in result.get('files', {}).get('code', []):
+              p = Path(f)
+              code_files.extend(collect_files(p) if p.is_dir() else [p])
+
+          # Extract AST (no API cost)
+          extraction = extract(code_files) if code_files else {'nodes': [], 'edges': []}
+
+          # Build and cluster
+          G = build_from_json(extraction)
+          communities = cluster(G)
+          gods = god_nodes(G)
+          surprises = surprising_connections(G, communities)
+
+          # Generate report. graphifyy 0.9.2 signature:
+          #   generate(G, communities, cohesion_scores, community_labels,
+          #            god_node_list, surprise_list, detection_result, token_cost, root)
+          # detection_result must be the detect() output (has total_files / total_words /
+          # warning) — NOT the AST extraction dict, which lacks those keys.
+          report = generate(G, communities, {}, {}, gods, surprises, result, {}, '.')
+          Path('graphify-out/GRAPH_REPORT.md').write_text(report)
+          Path('graphify-out/graph.json').write_text(json.dumps({'nodes': extraction['nodes'], 'edges': extraction['edges']}, indent=2))
+          Path('graphify-out/.graphify_analysis.json').write_text(json.dumps({
+              'communities': {str(k): v for k, v in communities.items()},
+              'god_nodes': [{'label': g['label'], 'degree': g['degree']} for g in gods],
+              'surprises': surprises,
+          }, indent=2))
+          print(f'Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities')
+          "
+
+      - name: Upload graph artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: knowledge-graph-${{ github.sha }}
+          path: graphify-out/
+          retention-days: 14
+
+      - name: Archive graph to .perf
+        run: |
+          mkdir -p .perf/graphify
+          cp -r graphify-out/* .perf/graphify/
+          echo "Archived graph to .perf/graphify/"
+
+  # ════════════════════════════════════════════════════════════════
+  #  Analyze for architectural insights
+  # ════════════════════════════════════════════════════════════════
+  analyze-architecture:
+    name: Architecture Analysis
+    runs-on: ubuntu-latest
+    needs: generate-graph
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download graph artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: knowledge-graph-${{ github.sha }}
+          path: graphify-out
+
+      - name: Report god nodes and surprises
+        run: |
+          echo "## Knowledge Graph Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f graphify-out/GRAPH_REPORT.md ]; then
+            # Extract god nodes section
+            echo '### God Nodes (Architectural Hotspots)' >> $GITHUB_STEP_SUMMARY
+            grep -A 20 '## God Nodes' graphify-out/GRAPH_REPORT.md >> $GITHUB_STEP_SUMMARY || echo "No god nodes detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '### Surprising Connections' >> $GITHUB_STEP_SUMMARY
+            grep -A 20 '## Surprising Connections' graphify-out/GRAPH_REPORT.md >> $GITHUB_STEP_SUMMARY || echo "No surprising connections detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check god node thresholds
+        run: |
+          # God node threshold check - warn if any node has > 15 connections
+          # (configurable threshold for architectural complexity warnings)
+          if [ -f graphify-out/.graphify_analysis.json ]; then
+            python -c "
+          import json
+          from pathlib import Path
+
+          analysis = json.loads(Path('graphify-out/.graphify_analysis.json').read_text())
+          gods = analysis.get('god_nodes', [])
+          threshold = 15
+
+          for god in gods:
+              label = god.get('label', 'unknown')
+              degree = god.get('degree', 0)
+              if degree > threshold:
+                  print(f'::warning::God node detected: {label} has {degree} connections (threshold: {threshold})')
+          "
+          fi

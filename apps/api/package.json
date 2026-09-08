@@ -1,0 +1,45 @@
+{
+  "name": "@nexus-hems/api",
+  "version": "1.11.1",
+  "private": true,
+  "type": "module",
+  "description": "Nexus-HEMS Express 5 backend — JWT auth, WebSocket, protocol adapters",
+  "scripts": {
+    "dev": "tsx --watch index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check --error-on-warnings src/ index.ts",
+    "lint:fix": "biome check --write src/ index.ts",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@influxdata/influxdb-client": "^1.35.0",
+    "@nexus-hems/shared-types": "workspace:*",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.1",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.4.2",
+    "jose": "catalog:",
+    "modbus-serial": "^8.0.25",
+    "mqtt": "catalog:",
+    "tsx": "catalog:",
+    "ws": "^8.21.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "catalog:",
+    "@types/supertest": "^7.2.0",
+    "@types/ws": "^8.18.1",
+    "supertest": "^7.2.2",
+    "typescript": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "vitest": "catalog:"
+  }
+}

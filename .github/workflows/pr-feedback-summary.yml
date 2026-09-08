@@ -1,0 +1,101 @@
+name: PR Feedback Summary
+
+# Posts a single, concise summary comment on PRs after the main CI,
+# security, Lighthouse, and perf workflows finish. This reduces context
+# switching by surfacing links to reports and the next-step checklist.
+#
+# Runs on workflow_run so it has write access to PR comments without
+# granting broad write permissions to the heavy workflows themselves.
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - Security Full
+      - Lighthouse CI
+      - Performance Benchmark
+    types:
+      - completed
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+concurrency:
+  # Key on the head branch (repeats across the 4 upstream workflow_run completions
+  # for the same PR) so overlapping summary-postings dedupe. workflow_run.id would be
+  # unique per run, making the group a no-op.
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  summarize:
+    name: Post PR Feedback Summary
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.event == 'pull_request'
+    steps:
+      - name: Post summary comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const prs = run.pull_requests;
+            if (!prs || prs.length === 0) {
+              core.info('No associated PRs; skipping summary comment.');
+              return;
+            }
+
+            const pr = prs[0];
+            const repo = context.repo;
+            const runUrl = run.html_url;
+            const runName = run.name;
+            const conclusion = run.conclusion;
+            const icon = conclusion === 'success' ? '✅' : conclusion === 'failure' ? '❌' : '⚠️';
+
+            const body = `## ${icon} ${runName} finished
+
+            | Detail | Link |
+            |--------|------|
+            | Workflow run | [View run](${runUrl}) |
+            | Coverage (Codecov) | [View PR report](https://app.codecov.io/gh/${repo.owner}/${repo.repo}/pull/${pr.number}) |
+            | DeepSource report | [View report card](https://app.deepsource.com/gh/${repo.owner}/${repo.repo}/) |
+            | Coverage artifact | Download “coverage-report” artifact from the CI run |
+            | Bundle analysis | Download “bundle-analysis” artifact from the CI run |
+            | Lighthouse report | Download “lighthouse-report” artifact (if Lighthouse run) |
+
+            **Next steps:**
+            - If any check failed, click the failing job and read the log.
+            - See [PR Feedback Playbook](https://github.com/${repo.owner}/${repo.repo}/blob/main/docs/PR-FEEDBACK-PLAYBOOK.md) for tool roles.
+            - Follow the [PR Review & Correction Loop Runbook](https://github.com/${repo.owner}/${repo.repo}/blob/${run.head_sha}/docs/runbooks/pr-review-correction-loop.md) (mandatory checklist).
+            - Resolve all review threads before merging.
+
+            <!-- pr-feedback-summary -->`;
+
+            // Upsert: delete previous summary comments for this run name.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: repo.owner,
+              repo: repo.repo,
+              issue_number: pr.number,
+            });
+
+            const marker = '<!-- pr-feedback-summary -->';
+            for (const c of comments) {
+              if (c.body && c.body.includes(marker)) {
+                await github.rest.issues.deleteComment({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  comment_id: c.id,
+                });
+              }
+            }
+
+            await github.rest.issues.createComment({
+              owner: repo.owner,
+              repo: repo.repo,
+              issue_number: pr.number,
+              body,
+            });

@@ -1,0 +1,43 @@
+# Graphify ignore patterns for Nexus-HEMS-Dash
+# These patterns exclude files that should not be included in the knowledge graph
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+coverage/
+playwright-report/
+test-results/
+storybook-static/
+
+# Tooling caches
+.turbo/
+.perf/
+.cache/
+
+# Git and version control
+.git/
+.git-ftp/
+
+# Environment and secrets
+.env*
+.secrets/
+
+# Large data files
+*.log
+*.lock
+pnpm-lock.yaml
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation images (too large for semantic extraction)
+docs/screenshots/
+docs/images/
+
+# Generated files
+*.generated.*

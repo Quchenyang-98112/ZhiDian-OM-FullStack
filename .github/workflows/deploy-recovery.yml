@@ -1,0 +1,67 @@
+name: Deploy Recovery
+
+on:
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: pages-recovery
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  rerun-failed-deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.run_attempt < 2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Skip if a newer Deploy run already superseded this failure
+        id: superseded
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failed_id="${{ github.event.workflow_run.id }}"
+          latest_id="$(gh run list --workflow=deploy.yml --branch=main --limit=1 --json databaseId --jq '.[0].databaseId')"
+          if [ "${latest_id}" != "${failed_id}" ]; then
+            echo "Newer Deploy run ${latest_id} exists; skipping recovery for failed run ${failed_id}."
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "No newer Deploy run; recovery may proceed for ${failed_id}."
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Wait for GitHub Pages cooldown before rerun
+        if: steps.superseded.outputs.skip != 'true'
+        run: sleep 600
+
+      - name: Rerun failed Deploy workflow jobs
+        if: steps.superseded.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="${{ github.event.workflow_run.id }}"
+          latest_id="$(gh run list --workflow=deploy.yml --branch=main --limit=1 --json databaseId --jq '.[0].databaseId')"
+          if [ "${latest_id}" != "${run_id}" ]; then
+            echo "Deploy run ${run_id} was superseded by ${latest_id} during cooldown; skipping rerun."
+            exit 0
+          fi
+          echo "Rerunning failed jobs for Deploy workflow run ${run_id}"
+          gh run rerun "${run_id}" --failed

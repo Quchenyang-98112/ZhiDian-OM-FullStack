@@ -1,0 +1,43 @@
+name: OpenSSF Scorecard
+
+on:
+  # Weekly scan every Monday at 03:00 UTC
+  schedule:
+    - cron: '0 3 * * 1'
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Declare default permissions as read only
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scorecard:
+    name: OpenSSF Scorecard
+    runs-on: ubuntu-latest
+    # No job-level or workflow-level `env` — ossf/scorecard-action rejects
+    # publish_results when the scorecard job defines env vars (OpenSSF API 400).
+    permissions:
+      # Needed to publish results and get a badge (see publish_results below)
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Run OpenSSF Scorecard
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publish results to OpenSSF REST API for badge
+          publish_results: ${{ github.event_name != 'pull_request' }}

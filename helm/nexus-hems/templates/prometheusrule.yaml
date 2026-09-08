@@ -1,0 +1,73 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "nexus-hems.fullname" . }}
+  labels:
+    {{- include "nexus-hems.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: nexus-hems.rules
+      rules:
+        - alert: HighGridImport
+          expr: hems_grid_power_watts > 4200
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Grid import exceeds 4200W for 5+ minutes"
+            description: "Current grid import: {{ "{{ $value }}" }}W"
+
+        - alert: BatteryLow
+          expr: hems_battery_soc_percent < 10
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Battery SoC below 10% for 10+ minutes"
+            description: "Battery SoC: {{ "{{ $value }}" }}%"
+
+        - alert: AdapterDisconnected
+          expr: hems_adapter_connected == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Adapter disconnected for 2+ minutes"
+            description: "Adapter {{ "{{ $labels.adapter_id }}" }} is offline"
+
+        - alert: HighElectricityPrice
+          expr: hems_tariff_price_eur_per_kwh > 0.40
+          for: 1m
+          labels:
+            severity: info
+          annotations:
+            summary: "Electricity price exceeds 40 ct/kWh"
+            description: "Current price: {{ "{{ $value }}" }} EUR/kWh"
+
+        - alert: GridVoltageAnomaly
+          expr: hems_grid_voltage_volts < 210 or hems_grid_voltage_volts > 250
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Grid voltage outside 210–250V tolerance"
+            description: "Voltage: {{ "{{ $value }}" }}V"
+
+        - alert: ServerDown
+          expr: up{job="nexus-hems-server"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "HEMS server is down"
+
+        - alert: HighErrorRate
+          expr: rate(hems_adapter_errors_total[5m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High adapter error rate detected"
+            description: "Error rate: {{ "{{ $value }}" }}/s for adapter {{ "{{ $labels.adapter_id }}" }}"
+{{- end }}

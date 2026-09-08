@@ -1,0 +1,10 @@
+[
+  {
+    "nodeId": 1,
+    "role": "load"
+  },
+  {
+    "nodeId": 2,
+    "role": "grid"
+  }
+]

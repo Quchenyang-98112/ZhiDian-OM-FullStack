@@ -1,0 +1,4 @@
+#!/bin/sh
+
+# Pre-push checks disabled — run manually before pushing:
+#   pnpm type-check && pnpm test:run

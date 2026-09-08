@@ -1,0 +1,22 @@
+[
+  {
+    "entityId": "sensor.solar_power",
+    "metric": "POWER_W",
+    "role": "pv"
+  },
+  {
+    "entityId": "sensor.battery_soc",
+    "metric": "SOC_PERCENT",
+    "role": "battery"
+  },
+  {
+    "entityId": "sensor.grid_power",
+    "metric": "POWER_W",
+    "role": "grid"
+  },
+  {
+    "entityId": "sensor.house_power",
+    "metric": "POWER_W",
+    "role": "load"
+  }
+]
